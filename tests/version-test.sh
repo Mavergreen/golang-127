@@ -29,10 +29,11 @@ echo "PASS: version"
 # GO_LINE is DERIVED from the upstream version, not configured. Two sources of truth for "which
 # line is this" is how a repo ends up building 1.26 and stamping a go127 pkg identifier.
 R="$here/.."
+want_line="$(printf '%s' "$U" | sed -n 's/^\([0-9]*\)\.\([0-9]*\)\..*$/\1\2/p')"
 derived="$(GO_LINE= sh "$R/build/version.sh" line)"
-[ "$derived" = 126 ] || { echo "FAIL: derived line '$derived', expected 126"; exit 1; }
+[ "$derived" = "$want_line" ] || { echo "FAIL: derived line '$derived', expected $want_line from UPSTREAM_VERSION $U"; exit 1; }
 
-# A caller-supplied GO_LINE is a CHECK, not an override: pairing GO_LINE=127 with a 1.26.x
-# UPSTREAM_VERSION must fail loudly, not silently build the wrong line.
-mismatch_out="$(GO_LINE=127 sh "$R/build/version.sh" line 2>&1)" && { echo "FAIL: GO_LINE=127 sh build/version.sh line should have failed, printed: $mismatch_out"; exit 1; }
+# A caller-supplied GO_LINE is a CHECK, not an override: pairing a GO_LINE with an UPSTREAM_VERSION
+# of another line must fail loudly, not silently build the wrong line. 1 is never a real Go line.
+mismatch_out="$(GO_LINE=1 sh "$R/build/version.sh" line 2>&1)" && { echo "FAIL: GO_LINE=1 sh build/version.sh line should have failed, printed: $mismatch_out"; exit 1; }
 echo "PASS: GO_LINE mismatch rejected"
