@@ -1,0 +1,78 @@
+Align upstream's env tests with the keychain union on darwin. TestEnvVars and
+TestLoadSystemCertsLoadColonSeparatedDirs assert that SSL_CERT_FILE /
+SSL_CERT_DIR are the ONLY roots, which is upstream 1.27's darwin semantics and
+deliberately not ours (the union keeps the keychain and the distrust veto), so
+they skip on darwin and point at the TestKeychainUnion* tests that pin our
+behaviour. TestSSLCertEnvOverride keeps running: on darwin it now asserts that
+x509sslcertoverrideplatform has no effect. TestIssue51759 and TestHybridPool
+assume Apple's verifier is the darwin default (Apple's errors; AIA-fetched
+intermediates) and skip on darwin too. Other platforms unchanged.
+
+--- src/crypto/x509/root_test.go.orig
++++ src/crypto/x509/root_test.go
+@@ -125,6 +125,9 @@
+ )
+ 
+ func TestEnvVars(t *testing.T) {
++	if runtime.GOOS == "darwin" || runtime.GOOS == "ios" {
++		t.Skip("darwin: the keychain union serves the system roots and SSL_CERT_* shapes its bundle files without replacing it (PORT.md); TestKeychainUnion* pin that")
++	}
+ 	tmpDir := t.TempDir()
+ 	testCert, err := os.ReadFile("testdata/test-dir.crt")
+ 	if err != nil {
+@@ -252,6 +255,9 @@
+ // loadSystemRoots to load all the roots from the respective directories.
+ // See https://golang.org/issue/35325.
+ func TestLoadSystemCertsLoadColonSeparatedDirs(t *testing.T) {
++	if runtime.GOOS == "darwin" || runtime.GOOS == "ios" {
++		t.Skip("darwin: the keychain union serves the system roots and SSL_CERT_* shapes its bundle files without replacing it (PORT.md); TestKeychainUnion* pin that")
++	}
+ 	origFile, origDir := os.Getenv(certFileEnv), os.Getenv(certDirEnv)
+ 	origCertFiles := certFiles[:]
+ 
+@@ -358,11 +364,18 @@
+ 		t.Fatalf("unexpected failure: %s", err)
+ 	}
+ 
+-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "ios" {
++	switch runtime.GOOS {
++	case "darwin", "ios":
++		if p.systemPool {
++			t.Fatal("darwin: x509sslcertoverrideplatform must have no effect -- go127 serves the keychain union either way (PORT.md)")
++		}
++	case "windows":
+ 		if !p.systemPool {
+ 			t.Fatal("x509sslcertoverrideplatform did not override SSL_CERT_{FILE,DIR}")
+ 		}
+-	} else if p.systemPool {
+-		t.Fatal("x509sslcertoverrideplatform caused a systemPool to be returned on OS other than windows or darwin")
++	default:
++		if p.systemPool {
++			t.Fatal("x509sslcertoverrideplatform caused a systemPool to be returned on OS other than windows or darwin")
++		}
+ 	}
+ }
+--- src/crypto/x509/verify_test.go.orig
++++ src/crypto/x509/verify_test.go
+@@ -1700,6 +1700,9 @@
+ }
+ 
+ func TestIssue51759(t *testing.T) {
++	if runtime.GOOS == "darwin" || runtime.GOOS == "ios" {
++		t.Skip("darwin: Go's verifier over the keychain union is the default, not Apple's (PORT.md); TestKeychainUnionSystemVerify* and TestKeychainUnionLegacySecTrust* cover Apple's verifier")
++	}
+ 	if runtime.GOOS != "darwin" {
+ 		t.Skip("only affects darwin")
+ 	}
+--- src/crypto/x509/hybrid_pool_test.go.orig
++++ src/crypto/x509/hybrid_pool_test.go
+@@ -20,6 +20,9 @@
+ 
+ func TestHybridPool(t *testing.T) {
+ 	t.Parallel()
++	if runtime.GOOS == "darwin" || runtime.GOOS == "ios" {
++		t.Skip("darwin: Go's verifier over the keychain union is the default, and it does no AIA fetching, so a leaf verified without intermediates fails; Apple's verifier (x509usefallbackroots=0) fetches them (PORT.md)")
++	}
+ 	if !(runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "ios") {
+ 		t.Skipf("platform verifier not available on %s", runtime.GOOS)
+ 	}

@@ -1,6 +1,6 @@
 #!/bin/sh
 # platform: macOS-only -- builds the patched toolchain for the host and runs crypto/x509's darwin keychain tests
-# Build the patched go126 for the HOST and run the keychain-union trust unit tests.
+# Build this line's patched Go for the HOST and run the keychain-union trust unit tests.
 # The trust logic (buildKeychainUnionPool, the veto, and the env resolver) is
 # build-tag-free, so a host build on macOS exercises it. This is the automated gate
 # the trust patches previously lacked. Needs a Go >=1.24 bootstrap.
@@ -22,7 +22,7 @@ rm -rf "$WORK/go"
 sh "$here/../../build/fetch-go.sh"
 sh "$here/../../build/apply-patches.sh"
 ( cd "$WORK/go/src" && GOROOT_BOOTSTRAP="$GOROOT_BOOTSTRAP" ./make.bash ) 1>&2
-out=$(GOROOT="$WORK/go" "$WORK/go/bin/go" test crypto/x509 -run 'KeychainUnion|Fallback' -count=1 -v 2>&1)
+out=$(GOROOT="$WORK/go" "$WORK/go/bin/go" test crypto/x509 -run 'KeychainUnion|Fallback|TestEnvVars|ColonSeparatedDirs|SSLCertEnvOverride|TestIssue51759|TestHybridPool' -count=1 -v 2>&1)
 printf '%s\n' "$out"
 printf '%s\n' "$out" | grep -q '^ok[[:space:]]' || { echo "FATAL: crypto/x509 trust tests did not pass" >&2; exit 1; }
 # On CI a skipped trust test is a failure: the Apple-verifier tests skip only when the host's
@@ -33,8 +33,8 @@ if [ -n "${CI:-}" ]; then
   [ -z "$skipped" ] || { printf 'FATAL: KeychainUnion tests skipped on CI (they must run):\n%s\n' "$skipped" >&2; exit 1; }
 fi
 passed=$(printf '%s\n' "$out" | grep -c '^--- PASS: Test[A-Za-z_]*KeychainUnion')
-# Top-level tests only: 10 portable + 6 darwin, all of which run on CI (the skip guard above).
-[ "$passed" -ge 16 ] || { echo "FATAL: expected >=16 KeychainUnion tests to run+pass, saw $passed -- did -run match nothing?" >&2; exit 1; }
+# Top-level tests only; all run on CI (the skip guard above).
+[ "$passed" -ge 23 ] || { echo "FATAL: expected >=23 KeychainUnion tests to run+pass, saw $passed -- did -run match nothing?" >&2; exit 1; }
 for t in TestFallback TestFallbackPanic; do
   printf '%s\n' "$out" | grep -q "^--- PASS: $t " || { echo "FATAL: upstream $t did not pass" >&2; exit 1; }
 done
@@ -43,4 +43,16 @@ done
 # faults when the policies argument is a CFArray (one built by CFArrayCreateMutable).
 grep -q 'SecTrustCreateWithCertificates(certs, sslPolicy)' "$WORK/go/src/crypto/x509/root_darwin.go" \
   || { echo "FATAL: root_darwin.go no longer passes the SSL policy directly to SecTrustCreateWithCertificates -- 10.9's SecTrustEvaluate faults on a policies CFArray" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q '^--- PASS: TestSSLCertEnvOverride ' \
+  || { echo "FATAL: TestSSLCertEnvOverride did not pass -- on darwin it pins that x509sslcertoverrideplatform has no effect" >&2; exit 1; }
+for t in TestEnvVars TestLoadSystemCertsLoadColonSeparatedDirs TestIssue51759 TestHybridPool; do
+  printf '%s\n' "$out" | grep -q "^--- SKIP: $t " \
+    || { echo "FATAL: upstream $t did not SKIP on darwin -- patch 0018 is missing, or it asserts upstream's darwin semantics (env-exclusive roots, or Apple's verifier as the default), which go127 deliberately does not have" >&2; exit 1; }
+done
+grep -q 'keychainUnionPlatformRoots(); handled' "$WORK/go/src/crypto/x509/root.go" \
+  || { echo "FATAL: root.go's loadSystemRoots no longer hands darwin to the keychain union (patch 0016)" >&2; exit 1; }
+for os in linux windows; do
+  GOROOT="$WORK/go" GOOS=$os GOARCH=amd64 "$WORK/go/bin/go" build crypto/x509 \
+    || { echo "FATAL: crypto/x509 does not build for GOOS=$os -- the !darwin keychainUnionPlatformRoots stub (patch 0017) is missing" >&2; exit 1; }
+done
 echo "unit-trust OK ($passed trust tests passed)"
