@@ -181,4 +181,4 @@ asserting upstream's darwin semantics.
 
 ## Last verified
 
-(Task 6 appends a dated line here per on-box verification.)
+- 2026-09-25: go1.27.1 on ultimate-hat (10.9.5) -- smoke, pure-go-link, acceptance-onbox (incl. SSL_CERT_FILE); Keychain "Never Trust" on ISRG Root X1 rejected valid-isrgrootx1.letsencrypt.org with and without SSL_CERT_FILE, and restoring Always Trust verified it; cross toolchain minos 13.0
