@@ -16,7 +16,7 @@ an empty union is an error.
 
 --- src/crypto/x509/root_keychainunion_darwin_test.go.orig
 +++ src/crypto/x509/root_keychainunion_darwin_test.go
-@@ -0,0 +1,416 @@
+@@ -0,0 +1,475 @@
 +//go:build darwin
 +
 +package x509
@@ -409,6 +409,39 @@ an empty union is an error.
 +	}
 +}
 +
++// The other half of invariant 6: TestKeychainUnionEmptyUnionIsAnError only pins
++// loadSystemRoots's own error. Verify itself must still produce a real verification result for an
++// empty union, not surface "no system roots": on darwin, Verify's platform-verifier branch calls
++// systemVerify whenever Roots is nil and the system pool is nil or the systemPool marker --
++// checked before Verify ever looks at systemRootsPool() for nil (verify.go) -- so an empty union
++// (systemRootsPool() == nil) falls through to Apple's verifier exactly like the systemPool marker
++// does, never to SystemRootsError.
++func TestKeychainUnionEmptyUnionFallsBackToAppleVerifier(t *testing.T) {
++	keychainUnionFakeKeychain(t)
++	empty := filepath.Join(t.TempDir(), "empty.pem")
++	if err := os.WriteFile(empty, nil, 0o644); err != nil {
++		t.Fatal(err)
++	}
++	keychainUnionEnv(t, "", empty, "")
++
++	leaf := keychainUnionSelfSignedServer(t, "example.test")
++	_, err := leaf.Verify(VerifyOptions{})
++	if err == nil {
++		t.Fatal("empty union: want an error verifying an untrusted self-signed leaf, got nil")
++	}
++	if _, ok := err.(SystemRootsError); ok {
++		t.Fatalf("got SystemRootsError -- an empty union must still fall back to Apple's verifier (systemVerify), not report \"no system roots\": %v", err)
++	}
++	// Observed on this host (a modern Mac, the non-legacy SecTrust path): Apple's verifier maps
++	// an untrusted self-signed leaf to macos.ErrSecNotTrusted, which systemVerify's
++	// SecTrustEvaluateWithError switch turns into UnknownAuthorityError (root_darwin.go). The
++	// legacy SecTrust path (macOS < 10.15) returns the same type for a Deny result
++	// (keychainUnionLegacyEvaluate's SecTrustResultDeny case), so this assertion holds either way.
++	if _, ok := err.(UnknownAuthorityError); !ok {
++		t.Fatalf("got %v (%T), want UnknownAuthorityError -- proves systemVerify (Apple's) ran instead of reporting \"no system roots\"", err, err)
++	}
++}
++
 +// A program importing golang.org/x/crypto/x509roots/fallback calls SetFallbackRoots from init. With
 +// SSL_CERT_FILE set it must still get the union, not its fallback pool, unless x509usefallbackroots=1.
 +func TestKeychainUnionEnvWithSetFallbackRoots(t *testing.T) {
@@ -432,4 +465,30 @@ an empty union is an error.
 +	if !slices.Contains(keychainUnionBundlePaths, want) {
 +		t.Fatalf("keychainUnionBundlePaths lacks %s: %v", want, keychainUnionBundlePaths)
 +	}
++}
++
++// Restores, for the keychain union, the darwin coverage patch 0018 removed from upstream's
++// TestHybridPool when it made that test skip on darwin (upstream's TestHybridPool assumes Apple's
++// verifier is the default, which go127 deliberately does not have -- PORT.md). SystemCertPool
++// returns a copy of the cached systemRootsPool (keychainUnionFakeKeychain resets it); adding a
++// certificate to that copy must leave both the keychain's own anchor and the added one able to
++// verify.
++func TestKeychainUnionSystemCertPoolAddCertKeepsBoth(t *testing.T) {
++	kRoot, kLeaf := keychainUnionTestChain(t)
++	aRoot, aLeaf := keychainUnionTestChain(t)
++	keychainUnionFakeKeychain(t, keychainUnionTrustEntry{der: kRoot.Raw, result: keychainUnionTrustRoot})
++	empty := filepath.Join(t.TempDir(), "empty.pem")
++	if err := os.WriteFile(empty, nil, 0o644); err != nil {
++		t.Fatal(err)
++	}
++	keychainUnionEnv(t, "", empty, "")
++
++	p, err := SystemCertPool()
++	if err != nil {
++		t.Fatal(err)
++	}
++	p.AddCert(aRoot)
++
++	keychainUnionMustVerify(t, p, kLeaf, "keychain root missing from SystemCertPool's copy after AddCert")
++	keychainUnionMustVerify(t, p, aLeaf, "AddCert's own root missing after SystemCertPool")
 +}

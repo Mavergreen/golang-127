@@ -34,7 +34,7 @@ if [ -n "${CI:-}" ]; then
 fi
 passed=$(printf '%s\n' "$out" | grep -c '^--- PASS: Test[A-Za-z_]*KeychainUnion')
 # Top-level tests only; all run on CI (the skip guard above).
-[ "$passed" -ge 25 ] || { echo "FATAL: expected >=25 KeychainUnion tests to run+pass, saw $passed -- did -run match nothing?" >&2; exit 1; }
+[ "$passed" -ge 27 ] || { echo "FATAL: expected >=27 KeychainUnion tests to run+pass, saw $passed -- did -run match nothing?" >&2; exit 1; }
 for t in TestFallback TestFallbackPanic; do
   printf '%s\n' "$out" | grep -q "^--- PASS: $t " || { echo "FATAL: upstream $t did not pass" >&2; exit 1; }
 done
@@ -45,9 +45,21 @@ grep -q 'SecTrustCreateWithCertificates(certs, sslPolicy)' "$WORK/go/src/crypto/
   || { echo "FATAL: root_darwin.go no longer passes the SSL policy directly to SecTrustCreateWithCertificates -- 10.9's SecTrustEvaluate faults on a policies CFArray" >&2; exit 1; }
 printf '%s\n' "$out" | grep -q '^--- PASS: TestSSLCertEnvOverride ' \
   || { echo "FATAL: TestSSLCertEnvOverride did not pass -- on darwin it pins that x509sslcertoverrideplatform has no effect" >&2; exit 1; }
+# A bare SKIP isn't proof patch 0018 is doing the right thing -- a test can skip for its own
+# unrelated reason. Require the reason text 0018 prints under -v too. `go test -v` logs the
+# indented "root_test.go:NNN: darwin: ..." line BEFORE the "--- SKIP: Test (...)" summary line.
 for t in TestEnvVars TestLoadSystemCertsLoadColonSeparatedDirs TestIssue51759 TestHybridPool; do
   printf '%s\n' "$out" | grep -q "^--- SKIP: $t " \
     || { echo "FATAL: upstream $t did not SKIP on darwin -- patch 0018 is missing, or it asserts upstream's darwin semantics (env-exclusive roots, or Apple's verifier as the default), which go127 deliberately does not have" >&2; exit 1; }
+  case "$t" in
+    TestEnvVars|TestLoadSystemCertsLoadColonSeparatedDirs) reason="the keychain union serves" ;;
+    TestIssue51759|TestHybridPool) reason="Go's verifier over the keychain union is the default" ;;
+  esac
+  skipreason=$(printf '%s\n' "$out" | grep -B1 "^--- SKIP: $t " | head -n1)
+  case "$skipreason" in
+    *"darwin:"*"$reason"*) ;;
+    *) echo "FATAL: $t skipped, but its reason is not patch 0018's (want 'darwin:' + \"$reason\"), got: $skipreason" >&2; exit 1 ;;
+  esac
 done
 grep -q 'keychainUnionPlatformRoots(); handled' "$WORK/go/src/crypto/x509/root.go" \
   || { echo "FATAL: root.go's loadSystemRoots no longer hands darwin to the keychain union (patch 0016)" >&2; exit 1; }

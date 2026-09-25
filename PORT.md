@@ -10,7 +10,8 @@ Before changing or dropping any carried change during a port to a new Go minor: 
 ## Trust invariants (crypto/x509 on darwin)
 
 These hold on every line. Tests named `TestKeychainUnion*` pin them; `tests/trust/unit-trust.sh`
-requires those tests to run and pass.
+requires those tests to run and pass. These change only through a trust-policy brainstorm, never
+inside a port.
 
 1. **The system roots are the keychain union:** anchors from all three trust domains (user, admin,
    system; Keychain Access semantics, Go 1.16/1.17's code) ∪ certificates from **every existing
@@ -37,14 +38,19 @@ requires those tests to run and pass.
    `Changed: 27, Old: "0"`, so every program whose go.mod says `go 1.26` or lower gets `=0` by
    default.
 5. **`GODEBUG=x509usefallbackroots=0` selects Apple's verifier** (the `systemPool` marker), on every
-   macOS version; `=1` with `SetFallbackRoots` behaves exactly as upstream; a program's own
-   `SetFallbackRoots` never panics and never displaces the union unless `=1`.
+   macOS version; `=1` with `SetFallbackRoots` uses the program's fallback pool, as upstream does —
+   but the keychain-distrust veto still applies, because `initSystemRoots` builds the union first
+   (as in go126) before ever swapping in the fallback pool; a program's own `SetFallbackRoots` never
+   panics and never displaces the union unless `=1`.
 6. **An empty union is an error**, so `Verify` with nil Roots falls back to Apple's verifier and
    `SystemCertPool` reports it.
 7. **Default bundle files:** `/usr/local/mavergreen/ca-certs/etc/openssl/certs/ca-certificates.crt`
    (the family's line-independent bundle — a contract the ca-certs product must honour), this line's
    own `@SSLDIR@/certs/ca-certificates.crt`, then `/usr/local/etc/openssl/cert.pem`,
    `/etc/openssl/certs/ca-certificates.crt`, `/etc/ssl/certs/ca-certificates.crt`, `/etc/ssl/cert.pem`.
+   Every default path is a trust input: `/usr/local/mavergreen` (and so the ca-certs tree) must be
+   root-owned, as must `/usr/local/etc/openssl`. *Reconsider* when the ca-certs product ships: the
+   lines may then stop carrying their own bundle copy.
 
 ## Hook ↔ overlay interface
 
@@ -61,6 +67,16 @@ Go churns them). A renamed function breaks the hook at compile time, which goes 
 | Overlay patch (new file) | Uses from hooks |
 |---|---|
 | 0008 `root_keychainunion_darwin.go` | 0005/0006's `internal/macos` SecTrustSettings wrappers |
+
+### Upstream internals the overlay relies on
+
+These are what break the overlay across Go minors — none of them are part of the hook/overlay
+interface above, but the overlay reaches into upstream's own unexported state to do its job:
+
+- 0008 uses `x509usefallbackroots` and `CertPool.systemPool`.
+- The tests (0014) use `once`, `systemRootsMu`, `systemRoots`, `systemRootsErr`, `fallbacksSet` and
+  `useFallbackRoots`.
+- 0016 relies on `loadSystemRoots` living in root.go.
 
 ## Carried changes
 
@@ -93,21 +109,24 @@ Hook. The assembly trampolines for 0005's wrappers. *Why/Reconsider:* as 0005.
 
 ### 0007-root-keychainunion.patch
 Overlay (portable). `buildKeychainUnionPool`, the bundle parsing and `keychainUnionResolveBundlePaths`
-(invariants 1, 3), and the distrust set. *Why:* invariants 1–3.
+(invariants 1, 3), and the distrust set. *Why:* invariants 1–3. *Reconsider:* never while
+invariants 1–3 hold.
 
 ### 0008-root-keychainunion-darwin.patch
 Overlay (darwin). Keychain enumeration (Go 1.16/1.17, with the user→admin fall-through fix),
 `keychainUnionLoadSystemRoots`, `keychainUnionPlatformRoots`, Apple's-verifier plumbing for
-< 10.15, and the default bundle list. *Why:* invariants 1–7.
+< 10.15, and the default bundle list. *Why:* invariants 1–7. *Reconsider:* never while
+invariants 1–7 hold.
 
 ### 0009-root-keychainunion-test.patch
 Overlay (portable tests). Pins invariants 1–3 and the anchor rules (TrustRoot only self-signed,
 TrustAsRoot only non-self-signed, Unspecified/Invalid anchor nothing), including
-`TestKeychainUnionAllBundlesContribute`.
+`TestKeychainUnionAllBundlesContribute`. *Reconsider:* never while invariants 1–3 hold.
 
 ### 0010-verify-distrust-veto.patch
 Hook. Drops any built chain containing a keychain-distrusted certificate. *Why:* invariant 2 —
 anchor exclusion alone cannot reject a distrusted intermediate that also chains to a trusted root.
+*Reconsider:* never while invariant 2 holds.
 
 ### 0011-cmd-dist-extlink-darwin-amd64.patch
 Hook. Lets `GO_EXTLINK_ENABLED=darwin/amd64` be baked in at make.bash time. *Why/Reconsider:* 0012.
@@ -124,23 +143,26 @@ Hook. Makes upstream's `systemVerify` work on 10.9: the SSL policy is passed as 
 `SecPolicyRef` (10.9's SecTrustEvaluate faults on a policies CFArray built by
 `CFArrayCreateMutable`), and below 10.15 evaluation and chain extraction use `SecTrustEvaluate` /
 `SecTrustGetCertificateAtIndex`. *Why:* invariant 5 — Apple's verifier must work on every macOS.
+*Reconsider:* never while invariant 5 holds.
 
 ### 0014-root-keychainunion-darwin-test.patch
 Overlay (darwin tests). Pins invariants 3–6 on darwin: the loadSystemRoots table, `SetFallbackRoots`
-behaviour, Apple's verifier on legacy SecTrust, and the ca-certs path (invariant 7).
+behaviour, Apple's verifier on legacy SecTrust, and the ca-certs path (invariant 7). *Reconsider:*
+never while invariants 3–6 hold.
 
 ### 0015-root-keychainunion-testdata.patch
-Overlay (testdata). The ISRG Root X1 chain the darwin tests verify against.
+Overlay (testdata). The ISRG Root X1 chain the darwin tests verify against. *Reconsider:* as 0014.
 
 ### 0016-root-loadsystemroots-keychainunion-hook.patch
 Hook. One statement at the top of `root.go`'s `loadSystemRoots` hands darwin to
 `keychainUnionPlatformRoots`. *Why:* Go 1.27 moved darwin's `loadSystemRoots` there from
-`root_darwin.go`. Keep it one statement so it survives future moves.
+`root_darwin.go`. Keep it one statement so it survives future moves. *Reconsider:* only if upstream
+moves `loadSystemRoots` again.
 
 ### 0017-root-keychainunion-other.patch
 Overlay (`!darwin`). `keychainUnionPlatformRoots` returns `handled=false`, so 0016 is inert off
 darwin. *Why:* without it `crypto/x509` does not compile for other GOOS (Review: cross-compiling
-from a Mac to linux must keep working).
+from a Mac to linux must keep working). *Reconsider:* never while 0016 exists.
 
 ### 0018-root-test-darwin-keychainunion.patch
 Hook (tests). Upstream tests that assert upstream's darwin semantics skip on darwin: `TestEnvVars`
@@ -148,7 +170,8 @@ and `TestLoadSystemCertsLoadColonSeparatedDirs` (env-exclusive roots, which we d
 invariant 3), and `TestIssue51759` (verify_test.go) and `TestHybridPool` (hybrid_pool_test.go), which
 assume Apple's verifier is the default (Apple's error strings; AIA-fetched intermediates —
 invariants 1, 5). `TestSSLCertEnvOverride` keeps running and asserts invariant 4 on darwin.
-`tests/trust/unit-trust.sh` requires all four skips.
+`tests/trust/unit-trust.sh` requires all four skips. *Reconsider:* when upstream's tests stop
+asserting upstream's darwin semantics.
 
 ## Not carried here
 
