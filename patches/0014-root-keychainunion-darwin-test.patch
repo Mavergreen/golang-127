@@ -16,7 +16,7 @@ an empty union is an error.
 
 --- src/crypto/x509/root_keychainunion_darwin_test.go.orig
 +++ src/crypto/x509/root_keychainunion_darwin_test.go
-@@ -0,0 +1,406 @@
+@@ -0,0 +1,416 @@
 +//go:build darwin
 +
 +package x509
@@ -30,6 +30,7 @@ an empty union is an error.
 +	"math/big"
 +	"os"
 +	"path/filepath"
++	"slices"
 +	"sync"
 +	"testing"
 +	"time"
@@ -421,5 +422,14 @@ an empty union is an error.
 +	pool := systemRootsPool()
 +	if pool == fallback || pool == nil || pool.systemPool || !pool.contains(kRoot) || !pool.contains(eRoot) {
 +		t.Fatalf("SSL_CERT_FILE + SetFallbackRoots: want the keychain union with both the keychain root and the bundle root (fallback=%v nil=%v)", pool == fallback, pool == nil)
++	}
++}
++
++// The line-independent bundle the ca-certs product will install: any Go line, and any program
++// cross-built for a box with no Go installed, finds one maintained bundle there (spec decision 6).
++func TestKeychainUnionCaCertsBundleListed(t *testing.T) {
++	const want = "/usr/local/mavergreen/ca-certs/etc/openssl/certs/ca-certificates.crt"
++	if !slices.Contains(keychainUnionBundlePaths, want) {
++		t.Fatalf("keychainUnionBundlePaths lacks %s: %v", want, keychainUnionBundlePaths)
 +	}
 +}

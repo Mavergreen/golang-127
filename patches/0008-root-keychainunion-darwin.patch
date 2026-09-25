@@ -41,12 +41,14 @@ with SecTrustGetCssmResultCode mapping failures to Go's typed errors. With
 GODEBUG=x509usefallbackroots=0 the union is not built, so the keychain-distrust
 veto does not apply to Go-verifier runs with custom Roots (upstream's
 behavior).
-@SSLDIR@ is substituted at build time with the toolchain's CA-bundle directory.
+The family's line-independent ca-certs bundle (/usr/local/mavergreen/ca-certs/…)
+and the toolchain's own (@SSLDIR@, substituted at build time) head the bundle
+list; every existing file contributes.
 All identifiers unexported.
 
 --- src/crypto/x509/root_keychainunion_darwin.go.orig
 +++ src/crypto/x509/root_keychainunion_darwin.go
-@@ -0,0 +1,362 @@
+@@ -0,0 +1,364 @@
 +//go:build darwin
 +
 +package x509
@@ -61,9 +63,11 @@ All identifiers unexported.
 +	"sync"
 +)
 +
-+// CA-bundle discovery mirrors root_bsd.go's certFiles, plus the toolchain's own
-+// CA-bundle path (@SSLDIR@ is substituted at build time).
++// CA-bundle discovery: the family's line-independent ca-certs bundle, this toolchain's own bundle
++// (@SSLDIR@ is substituted at build time), then root_bsd.go's certFiles. Every file that exists
++// contributes to the union -- this is not a search order (PORT.md).
 +var keychainUnionBundlePaths = []string{
++	"/usr/local/mavergreen/ca-certs/etc/openssl/certs/ca-certificates.crt",
 +	"@SSLDIR@/certs/ca-certificates.crt",
 +	"/usr/local/etc/openssl/cert.pem",
 +	"/etc/openssl/certs/ca-certificates.crt",

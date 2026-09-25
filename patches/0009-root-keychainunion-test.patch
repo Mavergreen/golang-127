@@ -17,7 +17,7 @@ and no real keychain:
 
 --- src/crypto/x509/root_keychainunion_test.go.orig
 +++ src/crypto/x509/root_keychainunion_test.go
-@@ -0,0 +1,268 @@
+@@ -0,0 +1,288 @@
 +package x509
 +
 +import (
@@ -284,5 +284,25 @@ and no real keychain:
 +				t.Error("a root that is both TrustRoot and Deny was anchored")
 +			}
 +		})
++	}
++}
++
++// Every existing bundle contributes -- NOT first-found. Deliberate since 2026-07-19: dropping stale
++// roots is its own trust-policy decision (PORT.md), never a side effect of a port or a tidy-up.
++func TestKeychainUnionAllBundlesContribute(t *testing.T) {
++	aRoot, aLeaf := keychainUnionTestChain(t)
++	bRoot, bLeaf := keychainUnionTestChain(t)
++	dir := t.TempDir()
++	a, b := dir+"/a.pem", dir+"/b.pem"
++	for p, c := range map[string]*Certificate{a: aRoot, b: bRoot} {
++		if err := os.WriteFile(p, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Raw}), 0o644); err != nil {
++			t.Fatal(err)
++		}
++	}
++	pool, _ := buildKeychainUnionPool(nil, []string{a, b})
++	for name, leaf := range map[string]*Certificate{"first": aLeaf, "second": bLeaf} {
++		if _, err := leaf.Verify(VerifyOptions{Roots: pool, CurrentTime: time.Now()}); err != nil {
++			t.Errorf("the %s bundle's root is missing: every existing bundle must contribute, not just the first found (PORT.md): %v", name, err)
++		}
 +	}
 +}
