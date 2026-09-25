@@ -1,0 +1,25 @@
+Serve darwin's system roots from the keychain union again. Go 1.27 moved
+loadSystemRoots from root_darwin.go (where patch 0013 used to replace it) into
+the shared root.go, and gave it an SSL_CERT_FILE/SSL_CERT_DIR branch that makes
+those variables exclusive on darwin. One hook at the top hands darwin to
+keychainUnionPlatformRoots (root_keychainunion_darwin.go), which keeps go126's
+semantics: the env shapes the union's bundle files without dropping the
+keychain or the distrust veto, x509sslcertoverrideplatform has no effect, and
+GODEBUG=x509usefallbackroots=0 still selects Apple's verifier. On every other
+platform keychainUnionPlatformRoots (root_keychainunion_other.go) returns
+handled=false and upstream's code runs unchanged.
+
+--- src/crypto/x509/root.go.orig
++++ src/crypto/x509/root.go
+@@ -135,6 +135,11 @@
+ var x509sslcertoverrideplatform = godebug.New("x509sslcertoverrideplatform")
+ 
+ func loadSystemRoots() (*CertPool, error) {
++	// darwin: the keychain union serves the system roots (root_keychainunion_darwin.go).
++	if roots, handled, err := keychainUnionPlatformRoots(); handled {
++		return roots, err
++	}
++
+ 	certFilePath, certDirPath := os.Getenv(certFileEnv), os.Getenv(certDirEnv)
+ 
+ 	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "ios" {

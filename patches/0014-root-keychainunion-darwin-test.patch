@@ -9,9 +9,14 @@ test fails. On 10.15+ (CI) that probe runs the modern calls, so a broken
 legacy path fails rather than skips; below 10.15 the probe is legacy too, and
 the on-box acceptance script is the gate.
 
+It also pins go127's loadSystemRoots table: SSL_CERT_* shapes the union and
+keeps the keychain and the veto, x509sslcertoverrideplatform has no effect,
+x509usefallbackroots=0 wins, a missing SSL_CERT_FILE keeps the keychain, and
+an empty union is an error.
+
 --- src/crypto/x509/root_keychainunion_darwin_test.go.orig
 +++ src/crypto/x509/root_keychainunion_darwin_test.go
-@@ -0,0 +1,215 @@
+@@ -0,0 +1,375 @@
 +//go:build darwin
 +
 +package x509
@@ -21,8 +26,10 @@ the on-box acceptance script is the gate.
 +	"crypto/elliptic"
 +	"crypto/rand"
 +	"crypto/x509/pkix"
++	"encoding/pem"
 +	"math/big"
 +	"os"
++	"path/filepath"
 +	"sync"
 +	"testing"
 +	"time"
@@ -225,5 +232,163 @@ the on-box acceptance script is the gate.
 +	_, err = leaf.systemVerify(&VerifyOptions{DNSName: leaf.DNSNames[0], Intermediates: inters, CurrentTime: leaf.NotAfter.Add(48 * time.Hour)})
 +	if e, ok := err.(CertificateInvalidError); !ok || e.Reason != Expired {
 +		t.Errorf("expired: got %v (%T), want CertificateInvalidError{Reason: Expired}", err, err)
++	}
++}
++
++// keychainUnionFakeKeychain makes the union see entries instead of the host's keychain, so a test
++// controls exactly what is trusted and distrusted. Restores both the enumerator and the distrust set.
++func keychainUnionFakeKeychain(t *testing.T, entries ...keychainUnionTrustEntry) {
++	t.Helper()
++	savedEnum, savedDistrust := keychainUnionEnumerate, keychainUnionDistrusted
++	keychainUnionEnumerate = func() []keychainUnionTrustEntry { return entries }
++	t.Cleanup(func() { keychainUnionEnumerate, keychainUnionDistrusted = savedEnum, savedDistrust })
++}
++
++// keychainUnionWriteBundle writes certs as one PEM bundle in a temp dir and returns its path.
++func keychainUnionWriteBundle(t *testing.T, certs ...*Certificate) string {
++	t.Helper()
++	var b []byte
++	for _, c := range certs {
++		b = append(b, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Raw})...)
++	}
++	p := filepath.Join(t.TempDir(), "bundle.pem")
++	if err := os.WriteFile(p, b, 0o644); err != nil {
++		t.Fatal(err)
++	}
++	return p
++}
++
++// keychainUnionEnv sets GODEBUG, SSL_CERT_FILE and SSL_CERT_DIR for one test.
++func keychainUnionEnv(t *testing.T, godebug, certFile, certDir string) {
++	t.Helper()
++	t.Setenv("GODEBUG", godebug)
++	t.Setenv("SSL_CERT_FILE", certFile)
++	t.Setenv("SSL_CERT_DIR", certDir)
++}
++
++func keychainUnionMustVerify(t *testing.T, pool *CertPool, leaf *Certificate, why string) {
++	t.Helper()
++	if _, err := leaf.Verify(VerifyOptions{Roots: pool, CurrentTime: time.Now()}); err != nil {
++		t.Errorf("%s: %v", why, err)
++	}
++}
++
++// Table row "SSL_CERT_* set, x509usefallbackroots not 0": the env shapes the union's bundle files
++// and the keychain stays in. Upstream Go 1.27 makes SSL_CERT_* exclusive on darwin (no keychain);
++// go127 deliberately keeps go126's keychain-preserving semantics (PORT.md, spec decision 5).
++func TestKeychainUnionEnvUnionsWithKeychain(t *testing.T) {
++	kRoot, kLeaf := keychainUnionTestChain(t)
++	eRoot, eLeaf := keychainUnionTestChain(t)
++	keychainUnionFakeKeychain(t, keychainUnionTrustEntry{der: kRoot.Raw, result: keychainUnionTrustRoot})
++	keychainUnionEnv(t, "", keychainUnionWriteBundle(t, eRoot), "")
++	pool, err := loadSystemRoots()
++	if err != nil || pool == nil || pool.systemPool {
++		t.Fatalf("SSL_CERT_FILE set: want the keychain union, got nil=%v systemPool=%v err=%v", pool == nil, pool != nil && pool.systemPool, err)
++	}
++	keychainUnionMustVerify(t, pool, kLeaf, "keychain root dropped while SSL_CERT_FILE is set -- go127 keeps the keychain in the union (upstream 1.27 drops it; PORT.md)")
++	keychainUnionMustVerify(t, pool, eLeaf, "SSL_CERT_FILE's root is missing from the union")
++}
++
++// A keychain Deny must veto even when SSL_CERT_FILE names a bundle holding that very root: a user's
++// Never Trust must not stop applying because a Python/conda env or a shell rc set SSL_CERT_FILE.
++func TestKeychainUnionEnvKeepsDistrustVeto(t *testing.T) {
++	dRoot, dLeaf := keychainUnionTestChain(t)
++	oRoot, _ := keychainUnionTestChain(t)
++	keychainUnionFakeKeychain(t, keychainUnionTrustEntry{der: dRoot.Raw, result: keychainUnionTrustDeny})
++	keychainUnionEnv(t, "", keychainUnionWriteBundle(t, dRoot, oRoot), "")
++	pool, err := loadSystemRoots()
++	if err != nil || pool == nil || pool.systemPool {
++		t.Fatalf("want the keychain union, got nil=%v err=%v", pool == nil, err)
++	}
++	if pool.contains(dRoot) {
++		t.Fatal("a keychain-distrusted root from SSL_CERT_FILE is in the anchor pool -- distrust must subtract bundle roots too")
++	}
++	explicit := NewCertPool()
++	explicit.AddCert(dRoot)
++	if _, err := dLeaf.Verify(VerifyOptions{Roots: explicit, CurrentTime: time.Now()}); err == nil {
++		t.Fatal("the distrust veto did not reject a chain through a keychain-denied root while SSL_CERT_FILE was set")
++	}
++}
++
++// x509sslcertoverrideplatform has NO effect on darwin. Upstream registers it Changed: 27, Old: "0",
++// so every program whose go.mod says go 1.26 or lower gets =0 by default; "=0 = pre-1.27 behaviour",
++// and for this toolchain that is go126's -- the env still shapes the union (PORT.md, spec decision 5).
++func TestKeychainUnionOverridePlatformHasNoEffect(t *testing.T) {
++	kRoot, kLeaf := keychainUnionTestChain(t)
++	eRoot, eLeaf := keychainUnionTestChain(t)
++	keychainUnionFakeKeychain(t, keychainUnionTrustEntry{der: kRoot.Raw, result: keychainUnionTrustRoot})
++	bundle := keychainUnionWriteBundle(t, eRoot)
++	for _, godebug := range []string{"x509sslcertoverrideplatform=0", "x509sslcertoverrideplatform=1"} {
++		t.Run(godebug, func(t *testing.T) {
++			keychainUnionEnv(t, godebug, bundle, "")
++			pool, err := loadSystemRoots()
++			if err != nil || pool == nil || pool.systemPool {
++				t.Fatalf("%s: want the keychain union, got nil=%v systemPool=%v err=%v", godebug, pool == nil, pool != nil && pool.systemPool, err)
++			}
++			keychainUnionMustVerify(t, pool, kLeaf, godebug+": keychain root missing")
++			keychainUnionMustVerify(t, pool, eLeaf, godebug+": SSL_CERT_FILE ignored -- a go.mod at go 1.26 would silently stop honouring it under go127")
++		})
++	}
++}
++
++// Table rows with x509usefallbackroots=0: Apple's verifier (the systemPool marker), whatever the env
++// and whatever x509sslcertoverrideplatform says.
++func TestKeychainUnionNativeOptOutWinsOverEnv(t *testing.T) {
++	eRoot, _ := keychainUnionTestChain(t)
++	bundle := keychainUnionWriteBundle(t, eRoot)
++	for _, tc := range []struct{ name, godebug, file string }{
++		{"no env", "x509usefallbackroots=0", ""},
++		{"env", "x509usefallbackroots=0", bundle},
++		{"env, override=0", "x509usefallbackroots=0,x509sslcertoverrideplatform=0", bundle},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			keychainUnionEnv(t, tc.godebug, tc.file, "")
++			pool, err := loadSystemRoots()
++			if err != nil || pool == nil || !pool.systemPool {
++				t.Fatalf("%s: want the systemPool marker (Apple's verifier), got nil=%v err=%v", tc.name, pool == nil, err)
++			}
++		})
++	}
++}
++
++// A stale SSL_CERT_FILE path (a deleted venv, say) is not an error while the keychain has anchors:
++// go126 served the keychain alone, and so must go127.
++func TestKeychainUnionMissingEnvFileKeepsKeychain(t *testing.T) {
++	kRoot, kLeaf := keychainUnionTestChain(t)
++	keychainUnionFakeKeychain(t, keychainUnionTrustEntry{der: kRoot.Raw, result: keychainUnionTrustRoot})
++	keychainUnionEnv(t, "", filepath.Join(t.TempDir(), "does-not-exist.pem"), "")
++	pool, err := loadSystemRoots()
++	if err != nil || pool == nil || pool.systemPool {
++		t.Fatalf("missing SSL_CERT_FILE: want the keychain union and no error, got nil=%v err=%v", pool == nil, err)
++	}
++	keychainUnionMustVerify(t, pool, kLeaf, "keychain root missing when SSL_CERT_FILE names a missing file")
++}
++
++// Nothing to trust at all is an error, so Verify with nil Roots falls back to Apple's verifier
++// and SystemCertPool reports it -- go126's empty-union behaviour.
++func TestKeychainUnionEmptyUnionIsAnError(t *testing.T) {
++	keychainUnionFakeKeychain(t)
++	empty := filepath.Join(t.TempDir(), "empty.pem")
++	if err := os.WriteFile(empty, nil, 0o644); err != nil {
++		t.Fatal(err)
++	}
++	keychainUnionEnv(t, "", empty, "")
++	if pool, err := loadSystemRoots(); err == nil {
++		t.Fatalf("empty keychain + empty bundle: want an error, got a pool of %d", pool.len())
++	}
++}
++
++// A program importing golang.org/x/crypto/x509roots/fallback calls SetFallbackRoots from init. With
++// SSL_CERT_FILE set it must still get the union, not its fallback pool, unless x509usefallbackroots=1.
++func TestKeychainUnionEnvWithSetFallbackRoots(t *testing.T) {
++	kRoot, _ := keychainUnionTestChain(t)
++	keychainUnionFakeKeychain(t, keychainUnionTrustEntry{der: kRoot.Raw, result: keychainUnionTrustRoot})
++	keychainUnionEnv(t, "", keychainUnionWriteBundle(t, kRoot), "")
++	keychainUnionResetSystemRoots(t)
++	fallback := NewCertPool()
++	SetFallbackRoots(fallback)
++	pool := systemRootsPool()
++	if pool == fallback || pool == nil || pool.systemPool || !pool.contains(kRoot) {
++		t.Fatalf("SSL_CERT_FILE + SetFallbackRoots: want the keychain union (fallback=%v nil=%v)", pool == fallback, pool == nil)
 +	}
 +}
