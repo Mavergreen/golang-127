@@ -6,7 +6,8 @@ the SSL policy (or for all policies) count, hostname-restricted settings are
 skipped -- using Go 1.16/1.17's own pure-Go enumeration
 (https://github.com/golang/go/blob/go1.17.13/src/crypto/x509/root_darwin.go,
 Copyright The Go Authors, BSD-style license), and build the union anchor pool
-via buildKeychainUnionPool; root_darwin.go's loadSystemRoots serves it. Reading
+via buildKeychainUnionPool; keychainUnionPlatformRoots serves it, reached from
+the hook at the top of root.go's loadSystemRoots (patch 0016). Reading
 the USER domain doesn't prompt in any context tested: user trust settings live
 in a root-owned file securityd reads; the SecurityAgent prompt guards writes
 (verified on 10.9.5 in ssh, GUI, root and launchd contexts; a locked login
@@ -36,7 +37,10 @@ beside Go 1.17's list of ignored keys says so.
 Go's verifier over that union is the default; GODEBUG=x509usefallbackroots=0
 selects Apple's, on every macOS version. Below 10.15 Apple's verifier is driven
 through SecTrustEvaluate and SecTrustGetCertificateAtIndex, which exist there,
-with SecTrustGetCssmResultCode mapping failures to Go's typed errors.
+with SecTrustGetCssmResultCode mapping failures to Go's typed errors. With
+GODEBUG=x509usefallbackroots=0 the union is not built, so the keychain-distrust
+veto does not apply to Go-verifier runs with custom Roots (upstream's
+behavior).
 @SSLDIR@ is substituted at build time with the toolchain's CA-bundle directory.
 All identifiers unexported.
 

@@ -7,7 +7,8 @@ semantics: the env shapes the union's bundle files without dropping the
 keychain or the distrust veto, x509sslcertoverrideplatform has no effect, and
 GODEBUG=x509usefallbackroots=0 still selects Apple's verifier. On every other
 platform keychainUnionPlatformRoots (root_keychainunion_other.go) returns
-handled=false and upstream's code runs unchanged.
+handled=false and upstream's code runs unchanged. "darwin" here includes
+GOOS=ios, which satisfies the darwin build tag, as it did in go126.
 
 --- src/crypto/x509/root.go.orig
 +++ src/crypto/x509/root.go

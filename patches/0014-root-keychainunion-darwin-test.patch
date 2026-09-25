@@ -16,7 +16,7 @@ an empty union is an error.
 
 --- src/crypto/x509/root_keychainunion_darwin_test.go.orig
 +++ src/crypto/x509/root_keychainunion_darwin_test.go
-@@ -0,0 +1,375 @@
+@@ -0,0 +1,406 @@
 +//go:build darwin
 +
 +package x509
@@ -236,9 +236,14 @@ an empty union is an error.
 +}
 +
 +// keychainUnionFakeKeychain makes the union see entries instead of the host's keychain, so a test
-+// controls exactly what is trusted and distrusted. Restores both the enumerator and the distrust set.
++// controls exactly what is trusted and distrusted. Also resets the cached systemRoots pool: on
++// darwin, Verify consults systemRootsPool() even when Roots is set (verify.go ~568), so a test that
++// calls Verify would otherwise leave its fake keychain and env cached in systemRoots for the rest of
++// the process -- and, symmetrically, could itself see a stale pool an earlier test left cached.
++// Restores the enumerator and the distrust set.
 +func keychainUnionFakeKeychain(t *testing.T, entries ...keychainUnionTrustEntry) {
 +	t.Helper()
++	keychainUnionResetSystemRoots(t)
 +	savedEnum, savedDistrust := keychainUnionEnumerate, keychainUnionDistrusted
 +	keychainUnionEnumerate = func() []keychainUnionTrustEntry { return entries }
 +	t.Cleanup(func() { keychainUnionEnumerate, keychainUnionDistrusted = savedEnum, savedDistrust })
@@ -258,6 +263,13 @@ an empty union is an error.
 +	return p
 +}
 +
++// keychainUnionWriteBundleDir writes certs as one PEM bundle file inside a fresh temp dir and
++// returns the dir, for a test exercising SSL_CERT_DIR (which reads every entry in the directory).
++func keychainUnionWriteBundleDir(t *testing.T, certs ...*Certificate) string {
++	t.Helper()
++	return filepath.Dir(keychainUnionWriteBundle(t, certs...))
++}
++
 +// keychainUnionEnv sets GODEBUG, SSL_CERT_FILE and SSL_CERT_DIR for one test.
 +func keychainUnionEnv(t *testing.T, godebug, certFile, certDir string) {
 +	t.Helper()
@@ -273,20 +285,38 @@ an empty union is an error.
 +	}
 +}
 +
-+// Table row "SSL_CERT_* set, x509usefallbackroots not 0": the env shapes the union's bundle files
++// Table rows "SSL_CERT_* set, x509usefallbackroots not 0": the env shapes the union's bundle files
 +// and the keychain stays in. Upstream Go 1.27 makes SSL_CERT_* exclusive on darwin (no keychain);
-+// go127 deliberately keeps go126's keychain-preserving semantics (PORT.md, spec decision 5).
++// go127 deliberately keeps go126's keychain-preserving semantics (PORT.md, spec decision 5). Covers
++// both SSL_CERT_FILE and SSL_CERT_DIR.
 +func TestKeychainUnionEnvUnionsWithKeychain(t *testing.T) {
-+	kRoot, kLeaf := keychainUnionTestChain(t)
-+	eRoot, eLeaf := keychainUnionTestChain(t)
-+	keychainUnionFakeKeychain(t, keychainUnionTrustEntry{der: kRoot.Raw, result: keychainUnionTrustRoot})
-+	keychainUnionEnv(t, "", keychainUnionWriteBundle(t, eRoot), "")
-+	pool, err := loadSystemRoots()
-+	if err != nil || pool == nil || pool.systemPool {
-+		t.Fatalf("SSL_CERT_FILE set: want the keychain union, got nil=%v systemPool=%v err=%v", pool == nil, pool != nil && pool.systemPool, err)
-+	}
-+	keychainUnionMustVerify(t, pool, kLeaf, "keychain root dropped while SSL_CERT_FILE is set -- go127 keeps the keychain in the union (upstream 1.27 drops it; PORT.md)")
-+	keychainUnionMustVerify(t, pool, eLeaf, "SSL_CERT_FILE's root is missing from the union")
++	t.Run("SSL_CERT_FILE", func(t *testing.T) {
++		kRoot, kLeaf := keychainUnionTestChain(t)
++		eRoot, eLeaf := keychainUnionTestChain(t)
++		keychainUnionFakeKeychain(t, keychainUnionTrustEntry{der: kRoot.Raw, result: keychainUnionTrustRoot})
++		keychainUnionEnv(t, "", keychainUnionWriteBundle(t, eRoot), "")
++		pool, err := loadSystemRoots()
++		if err != nil || pool == nil || pool.systemPool {
++			t.Fatalf("SSL_CERT_FILE set: want the keychain union, got nil=%v systemPool=%v err=%v", pool == nil, pool != nil && pool.systemPool, err)
++		}
++		keychainUnionMustVerify(t, pool, kLeaf, "keychain root dropped while SSL_CERT_FILE is set -- go127 keeps the keychain in the union (upstream 1.27 drops it; PORT.md)")
++		keychainUnionMustVerify(t, pool, eLeaf, "SSL_CERT_FILE's root is missing from the union")
++	})
++
++	t.Run("SSL_CERT_DIR", func(t *testing.T) {
++		kRoot, kLeaf := keychainUnionTestChain(t)
++		dRoot, dLeaf := keychainUnionTestChain(t)
++		eRoot, eLeaf := keychainUnionTestChain(t)
++		keychainUnionFakeKeychain(t, keychainUnionTrustEntry{der: kRoot.Raw, result: keychainUnionTrustRoot})
++		keychainUnionEnv(t, "", "", keychainUnionWriteBundleDir(t, dRoot, eRoot))
++		pool, err := loadSystemRoots()
++		if err != nil || pool == nil || pool.systemPool {
++			t.Fatalf("SSL_CERT_DIR set: want the keychain union, got nil=%v systemPool=%v err=%v", pool == nil, pool != nil && pool.systemPool, err)
++		}
++		keychainUnionMustVerify(t, pool, kLeaf, "keychain root dropped while SSL_CERT_DIR is set")
++		keychainUnionMustVerify(t, pool, dLeaf, "SSL_CERT_DIR's bundle is missing dRoot from the union")
++		keychainUnionMustVerify(t, pool, eLeaf, "SSL_CERT_DIR's bundle is missing eRoot from the union")
++	})
 +}
 +
 +// A keychain Deny must veto even when SSL_CERT_FILE names a bundle holding that very root: a user's
@@ -298,7 +328,7 @@ an empty union is an error.
 +	keychainUnionEnv(t, "", keychainUnionWriteBundle(t, dRoot, oRoot), "")
 +	pool, err := loadSystemRoots()
 +	if err != nil || pool == nil || pool.systemPool {
-+		t.Fatalf("want the keychain union, got nil=%v err=%v", pool == nil, err)
++		t.Fatalf("want the keychain union, got nil=%v systemPool=%v err=%v", pool == nil, pool != nil && pool.systemPool, err)
 +	}
 +	if pool.contains(dRoot) {
 +		t.Fatal("a keychain-distrusted root from SSL_CERT_FILE is in the anchor pool -- distrust must subtract bundle roots too")
@@ -345,7 +375,7 @@ an empty union is an error.
 +			keychainUnionEnv(t, tc.godebug, tc.file, "")
 +			pool, err := loadSystemRoots()
 +			if err != nil || pool == nil || !pool.systemPool {
-+				t.Fatalf("%s: want the systemPool marker (Apple's verifier), got nil=%v err=%v", tc.name, pool == nil, err)
++				t.Fatalf("%s: want the systemPool marker (Apple's verifier), got nil=%v systemPool=%v err=%v", tc.name, pool == nil, pool != nil && pool.systemPool, err)
 +			}
 +		})
 +	}
@@ -382,13 +412,14 @@ an empty union is an error.
 +// SSL_CERT_FILE set it must still get the union, not its fallback pool, unless x509usefallbackroots=1.
 +func TestKeychainUnionEnvWithSetFallbackRoots(t *testing.T) {
 +	kRoot, _ := keychainUnionTestChain(t)
++	eRoot, _ := keychainUnionTestChain(t)
 +	keychainUnionFakeKeychain(t, keychainUnionTrustEntry{der: kRoot.Raw, result: keychainUnionTrustRoot})
-+	keychainUnionEnv(t, "", keychainUnionWriteBundle(t, kRoot), "")
++	keychainUnionEnv(t, "", keychainUnionWriteBundle(t, eRoot), "")
 +	keychainUnionResetSystemRoots(t)
 +	fallback := NewCertPool()
 +	SetFallbackRoots(fallback)
 +	pool := systemRootsPool()
-+	if pool == fallback || pool == nil || pool.systemPool || !pool.contains(kRoot) {
-+		t.Fatalf("SSL_CERT_FILE + SetFallbackRoots: want the keychain union (fallback=%v nil=%v)", pool == fallback, pool == nil)
++	if pool == fallback || pool == nil || pool.systemPool || !pool.contains(kRoot) || !pool.contains(eRoot) {
++		t.Fatalf("SSL_CERT_FILE + SetFallbackRoots: want the keychain union with both the keychain root and the bundle root (fallback=%v nil=%v)", pool == fallback, pool == nil)
 +	}
 +}

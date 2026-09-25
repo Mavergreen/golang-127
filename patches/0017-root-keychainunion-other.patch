@@ -1,7 +1,9 @@
 The !darwin half of keychainUnionPlatformRoots: returns handled=false so the
 root.go hook (patch 0016) is inert and upstream's loadSystemRoots runs on every
 platform but darwin. Without it, crypto/x509 does not compile for GOOS=linux or
-windows.
+windows. "darwin" here includes GOOS=ios, which satisfies the darwin build tag,
+as it did in go126: root_keychainunion_other.go is the !darwin overlay file,
+built for every GOOS that is neither darwin nor ios.
 
 --- src/crypto/x509/root_keychainunion_other.go.orig
 +++ src/crypto/x509/root_keychainunion_other.go
