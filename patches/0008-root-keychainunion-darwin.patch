@@ -42,7 +42,7 @@ All identifiers unexported.
 
 --- src/crypto/x509/root_keychainunion_darwin.go.orig
 +++ src/crypto/x509/root_keychainunion_darwin.go
-@@ -0,0 +1,345 @@
+@@ -0,0 +1,362 @@
 +//go:build darwin
 +
 +package x509
@@ -289,12 +289,29 @@ All identifiers unexported.
 +	return names, nil
 +}
 +
++// keychainUnionEnumerate is how the union reads the keychain; tests replace it with synthetic entries.
++var keychainUnionEnumerate = keychainUnionEnumerateKeychain
++
++// keychainUnionPlatformRoots is darwin's loadSystemRoots, reached from the hook at the top of
++// root.go's loadSystemRoots (Go 1.27 moved loadSystemRoots there from root_darwin.go). The keychain
++// union serves the system roots; GODEBUG=x509usefallbackroots=0 selects Apple's verifier through the
++// systemPool marker. SSL_CERT_FILE / SSL_CERT_DIR shape the union's bundle files
++// (keychainUnionResolveBundlePaths) and never replace the keychain, and x509sslcertoverrideplatform
++// has no effect here: that is go126's behaviour, deliberately kept (PORT.md).
++func keychainUnionPlatformRoots() (*CertPool, bool, error) {
++	if keychainUnionNativeVerifier() {
++		return &CertPool{systemPool: true}, true, nil
++	}
++	pool, err := keychainUnionLoadSystemRoots()
++	return pool, true, err
++}
++
 +// keychainUnionLoadSystemRoots builds the keychain-union root store. loadSystemRoots calls it
 +// under systemRootsMu the first time a verification needs the system roots -- not at program
 +// start -- which also records the distrust set for verify.go's veto.
 +func keychainUnionLoadSystemRoots() (*CertPool, error) {
 +	paths := keychainUnionResolveBundlePaths(os.Getenv, keychainUnionReadDirNames, keychainUnionBundlePaths)
-+	pool, distrust := buildKeychainUnionPool(keychainUnionEnumerateKeychain(), paths)
++	pool, distrust := buildKeychainUnionPool(keychainUnionEnumerate(), paths)
 +	if pool.len() == 0 {
 +		return nil, errors.New("x509: no trusted keychain certificates and no CA bundle found")
 +	}
