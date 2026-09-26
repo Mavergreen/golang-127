@@ -4,12 +4,14 @@ Cross-builds a **patched Go 1.27.1 toolchain that installs and runs on Mac OS X 
 (Mavericks)** — with out-of-the-box cgo, keychain∪bundle verified TLS, and a Sparkle
 auto-updater — entirely on modern hardware. No 10.9 build runner anywhere.
 
-**Status:** the Go 1.27 line, ported locally from its sibling `golang-126`: trust semantics kept
-unchanged (patches 0005–0010 and 0013–0018, tracked in `PORT.md`), the compat guard and the trust
-unit-test gate pass. Not yet built and proven on real hardware and not yet released — the README
-still carries the family's un-read marker, which blocks the first release. Ships as
-`golang-<gover>-native-mavericks.<rev>.pkg` and `golang-<gover>-cross-mavericks.<rev>.pkg`, which
-install `/usr/local/mavergreen/go127` and `/usr/local/mavergreen/go127-cross`.
+**Status:** The Go 1.27 line, from its sibling `golang-126`, with trust semantics kept
+unchanged (patches 0005–0010 and 0013–0018, tracked in `PORT.md`). Built and proven end to
+end on real 10.9.5 hardware (`ultimate-hat`) on 2026-09-26, installed side by side with
+golang-126: separate trees, updaters and feeds, the selection untouched, the trust
+acceptance and the pure-Go link gate all passing, and a clean uninstall. The first release,
+`1.27.1-mavericks.1`, is auto-cut by the first push to `main`. Ships as
+`golang-<gover>-native-mavericks.<rev>.pkg` and `golang-<gover>-cross-mavericks.<rev>.pkg`,
+which install `/usr/local/mavergreen/go127` and `/usr/local/mavergreen/go127-cross`.
 
 ## Build / release
 
