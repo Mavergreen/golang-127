@@ -9,7 +9,7 @@ test -x "$stage$CROSS_PREFIX/bin/go" || { echo "run build-cross.sh first" >&2; e
 test -x "$stage$CROSS_PREFIX/bin/mavericks-cross-clang" || { echo "FATAL: cross CC wrapper not staged" >&2; exit 1; }
 
 out="$WORK/out"; mkdir -p "$out"
-base="golang-${GO_VERSION}-cross-${PKG_VERSION#*-}"   # golang-1.26.5-cross-mavericks.<rev>
+base="golang-${GO_VERSION}-cross-${PKG_VERSION#*-}"   # golang-<x.y.z>-cross-mavericks.<rev>
 pkg="$out/$base.pkg"
 
 : "${SHIPYARD_SCRIPTS:?mavericks-shipyard not found; install it -- see its README}"
@@ -32,7 +32,7 @@ pkgbuild --root "$stage" --identifier "dev.mavergreen.golang.go${GO_LINE}-cross"
 sh "$SHIPYARD_SCRIPTS/set_install_floor.sh" \
   --identifier "dev.mavergreen.golang.go${GO_LINE}-cross" \
   --title "go${GO_LINE}-cross — build 10.9 programs on modern macOS" \
-  --component "$comp" --out "$pkg" --min-os 11.0 --host-arch arm64 --require-scripts
+  --component "$comp" --out "$pkg" --min-os "$CROSS_MIN_OS" --host-arch arm64 --require-scripts
 rm -f "$comp"
 # Provenance: input pins in build/versions.sh, output hash in the release's SHA256SUMS.
 echo "$pkg"

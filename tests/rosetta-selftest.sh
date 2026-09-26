@@ -4,7 +4,7 @@
 # gate -- does the cross-produced amd64 `go` actually execute, compile, link, and run
 # a program? Skips cleanly (exit 0) when amd64 execution is unavailable; must NEVER
 # fail the build. Uses a pure-Go program (CGO_ENABLED=0): the staged go.env bakes the
-# ABSOLUTE install CC path (/usr/local/mavergreen/go126/bin/mavericks-clang) + shim, which only
+# ABSOLUTE install CC path ($PREFIX/bin/mavericks-clang) + shim, which only
 # exist once installed, so cgo is validated by the on-box 10.9 smoke, not here. The
 # authoritative runtime gate is the real 10.9 box.
 set -eu
@@ -26,7 +26,7 @@ package main
 
 import "fmt"
 
-func main() { fmt.Println("mavericks-go126 amd64 toolchain ok") }
+func main() { fmt.Println("mavericks-go amd64 toolchain ok") }
 GO
 cd "$tmp"
 # GO_EXTLINK_ENABLED=0: the staged CC wrapper names install paths absent here; internal-link just to prove amd64 exec.

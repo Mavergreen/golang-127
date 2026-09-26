@@ -5,7 +5,7 @@
 # already fetched it). No in-repo pin: the feed is the source of truth (see the
 # renovate-auto-release spec).
 set -eu
-VER="${1:?usage: go-src-sha256.sh <go-version, e.g. 1.26.5>}"
+VER="${1:?usage: go-src-sha256.sh <go-version, e.g. 1.27.1>}"
 file="go${VER}.src.tar.gz"
 
 if [ -n "${GO_DL_JSON:-}" ]; then

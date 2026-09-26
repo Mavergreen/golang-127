@@ -27,7 +27,7 @@ printf '%s\n' "$out" | grep -q '^RELEASE=yes$'            || { echo "FAIL local 
 echo "PASS: version"
 
 # GO_LINE is DERIVED from the upstream version, not configured. Two sources of truth for "which
-# line is this" is how a repo ends up building 1.26 and stamping a go127 pkg identifier.
+# line is this" is how a repo ends up building one line's Go while stamping another's pkg identifier.
 R="$here/.."
 want_line="$(printf '%s' "$U" | sed -n 's/^\([0-9]*\)\.\([0-9]*\)\..*$/\1\2/p')"
 derived="$(GO_LINE= sh "$R/build/version.sh" line)"

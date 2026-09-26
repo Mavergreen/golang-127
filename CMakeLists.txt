@@ -24,8 +24,8 @@ include(MavericksSparkle)   # the Sparkle updater .app builder
 
 file(STRINGS "${CMAKE_SOURCE_DIR}/VERSION" MAVGO_VERSION LIMIT_COUNT 1)
 
-# A Go MINOR LINE is a product: go126 and a future go127 install side by side, each with its own
-# prefix, identifiers and UPDATE FEED. Deriving the line from the version keeps the updater's feed,
+# A Go MINOR LINE is a product: this line's product and the next line's install side by side, each
+# with its own prefix, identifiers and UPDATE FEED. Deriving the line from the version keeps the updater's feed,
 # the paths it names, and the product title honest when a new line appears.
 string(REGEX REPLACE "^([0-9]+)\\.([0-9]+)\\..*$" "\\1\\2" MAVGO_LINE "${MAVGO_VERSION}")
 string(REGEX REPLACE "^([0-9]+)\\.([0-9]+)\\..*$" "\\1.\\2" MAVGO_MINOR "${MAVGO_VERSION}")

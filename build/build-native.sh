@@ -64,7 +64,7 @@ chmod 755 "$BUILDCC"
 # link-recipe.sh is no longer sourced). `go install cmd` lays go/gofmt in
 # bin/darwin_amd64/ and every tool in pkg/tool/darwin_amd64/.
 #
-# -linkmode=external is REQUIRED: Go 1.26 INTERNAL-links pure-Go binaries on darwin
+# -linkmode=external is REQUIRED: Go 1.27 INTERNAL-links pure-Go binaries on darwin
 # (go, gofmt, and the pure-Go tools have no cgo), and the internal linker stamps Go's
 # own supported floor -- macOS 12.0 -- which no external -mmacosx-version-min can undo.
 # Forcing external linking routes EVERY binary through the CC wrapper, so all get

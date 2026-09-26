@@ -13,7 +13,7 @@ export MAVERICKS_BUILD_ROOT
 export WORK="${MAVERICKS_WORK:-$MAVERICKS_BUILD_ROOT/golang-native}"
 
 # Package version, shaped like ../mavericks-swift's VERSION: <upstream>-mavericks.<rev>
-# (e.g. 1.26.4-mavericks.1). A packaging-only re-release (patch/recipe changes, independent
+# (e.g. <x.y.z>-mavericks.1). A packaging-only re-release (patch/recipe changes, independent
 # of upstream Go) is now cut via workflow_dispatch local_release=true, which computes the
 # next -mavericks.N itself — do not hand-edit VERSION. The source tarball checksum is NOT
 # pinned here: build/fetch-go.sh verifies the download against go.dev's own published
@@ -24,9 +24,9 @@ export WORK="${MAVERICKS_WORK:-$MAVERICKS_BUILD_ROOT/golang-native}"
 # writes and .gitignore excludes; before a release is cut (local/CI build) fall back to
 # the computed auto version so a build never depends on a committed VERSION file.
 . "$REPO_ROOT/build/lib.sh"
-# A Go MINOR LINE is a product: go126 and a future go127 install side by side (each in its own
-# repo), each with its own prefix, identifier, updater and feed, so a 1.26 user is never carried onto
-# 1.27 unasked. GO_LINE is derived from the root UPSTREAM_VERSION, not configured -- see
+# A Go MINOR LINE is a product: each line installs side by side with the next (each in its own
+# repo), each with its own prefix, identifier, updater and feed, so a user on this line is never
+# carried onto the next one unasked. GO_LINE is derived from the root UPSTREAM_VERSION, not configured -- see
 # build/version.sh, which owns the derivation; this just asks it.
 GO_LINE="$(sh "$REPO_ROOT/build/version.sh" line)"; export GO_LINE
 export MAVERICKS_UPSTREAM_FILE="$REPO_ROOT/UPSTREAM_VERSION"
@@ -51,6 +51,8 @@ export MLS_VERSION=1.5.2-mavericks.4   # mavericks-legacysupport
 
 export PREFIX="/usr/local/mavergreen/go${GO_LINE}"
 export MACOS_MIN="10.9"
+# spec: 2026-09-25 golang-127 spec decision 7 -- Go 1.27 requires macOS 13; its linker stamps 13.0 on the cross toolchain's own binaries
+export CROSS_MIN_OS="13.0"
 
 # Both products bake the SAME CA convention path into the std trust model: the
 # NATIVE prefix's bundle dir. Native populates it; cross-built apps look there

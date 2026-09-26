@@ -10,7 +10,7 @@ test -f "$stage$PREFIX/etc/openssl/certs/ca-certificates.crt" || { echo "FATAL: 
 test -x "$stage$PREFIX/bin/mavericks-clang" || { echo "FATAL: CC wrapper not staged" >&2; exit 1; }
 
 out="$WORK/out"; mkdir -p "$out"
-base="golang-${GO_VERSION}-native-${PKG_VERSION#*-}"   # golang-1.26.5-native-mavericks.<rev>
+base="golang-${GO_VERSION}-native-${PKG_VERSION#*-}"   # golang-<x.y.z>-native-mavericks.<rev>
 pkg="$out/$base.pkg"
 
 : "${SHIPYARD_SCRIPTS:?mavericks-shipyard not found; install it -- see its README}"

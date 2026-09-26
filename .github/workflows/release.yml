@@ -1,6 +1,6 @@
 name: release
 
-# Builds BOTH go126 products on a modern Apple-Silicon runner. Three entry points:
+# Builds BOTH of this line's products on a modern Apple-Silicon runner. Three entry points:
 #   - push to main   : build; if the current upstream (UPSTREAM_VERSION) has no release yet,
 #                       auto-cut <upstream>-mavericks.1 (build/version.sh auto -> RELEASE=yes)
 #   - a *-mavericks.* tag : publish that exact version
@@ -8,7 +8,7 @@ name: release
 # Products:
 #   - native (runs on 10.9): amd64/min-10.9 toolchain + x86_64 Sparkle updater + 10.9.5 floor
 #   - cross  (runs on modern macOS, targets 10.9): native arm64 toolchain + arm64 Sparkle updater
-# Each is EdDSA-signed with its own feed (go126.xml / go126-cross.xml), which its updater polls at
+# Each is EdDSA-signed with its own feed (go<line>.xml / go<line>-cross.xml), which its updater polls at
 # this repo's /releases/latest/download/, so there is no separate feed release. Publishing is the
 # shared publish-release.yml, which mints the tag itself (no PAT) and refuses an empty Release body.
 # No 10.9 runner anywhere; the published artifacts are re-validated on a real 10.9 box out-of-band.
@@ -52,12 +52,12 @@ jobs:
   # it publishes ONCE here, and let the other jobs read that decision rather than recompute it --
   # they must all agree about what is being built.
   #
-  # Deliberately not a matrix. A matrix leg's status context would embed the version ("build (126,
-  # 1.26.8-mavericks.1)"), so it would change every release and could never be a required status
+  # Deliberately not a matrix. A matrix leg's status context would embed the version ("build (<line>,
+  # <x.y.z>-mavericks.N)"), so it would change every release and could never be a required status
   # check -- which is what left every Renovate PR here stuck on "Expected — waiting for status to be
   # reported", unable to merge, for a month, back when lines/ let several lines share a repo. A
-  # second line also would have coupled builds: `publish` needs the whole matrix, so a failing 1.27
-  # would have blocked a ready 1.26 from shipping. A Go minor line is a product, and a product is its
+  # second line also would have coupled builds: `publish` needs the whole matrix, so a failing line
+  # would have blocked a ready one from shipping. A Go minor line is a product, and a product is its
   # own repo -- so this workflow builds the one line this repo has.
   plan:
     runs-on: ubuntu-latest
@@ -138,7 +138,7 @@ jobs:
 
       - name: Bootstrap Go (arm64, >= 1.24)
         uses: actions/setup-go@v7
-        with: { go-version: '1.26.x' }
+        with: { go-version: '1.27.x' }
 
       - name: pkgsrc rename guard
         run: sh tests/trust/rename-check.sh
@@ -217,12 +217,12 @@ jobs:
       # body consume -- the same bytes, so the page and Sparkle's update dialog cannot disagree.
       #
       # --min-os 10.9.5 describes the NATIVE .pkg (the flagship most users install), not the cross
-      # variant -- the cross appcast below carries its own real floor (--min-os 11.0) independently.
+      # variant -- the cross appcast below carries its own real floor (--min-os "$CROSS_MIN_OS") independently.
       #
-      # --line wants the upstream tag-glob prefix ("1.26"), NOT the product id GO_LINE ("126") this
-      # job already carries -- GO_LINE names the install prefix (/usr/local/mavergreen/go126); it is not the
+      # --line wants the upstream tag-glob prefix ("<x.y>"), NOT the product id GO_LINE ("<line>") this
+      # job already carries -- GO_LINE names the install prefix (/usr/local/mavergreen/go<line>); it is not the
       # dotted version prefix every "<line>-mavericks.*" tag actually starts with. Passing GO_LINE
-      # verbatim here would silently match no tag (none begins with "126"), which drops the
+      # verbatim here would silently match no tag (none begins with "<line>"), which drops the
       # ingredient section AND the compare link on every future release -- confirmed by generating
       # both ways against this repo's real tags before wiring this in. Derived from VER, which the
       # plan job already resolved for this line.
@@ -249,21 +249,24 @@ jobs:
           [ -d "$SH" ] || { echo "::error::SHIPYARD_SCRIPTS not set by install@v1"; exit 1; }
           VER="${{ steps.ver.outputs.full }}"; TAG="${{ steps.ver.outputs.tag }}"
           LINE="${{ needs.plan.outputs.line }}"
+          REPO_ROOT="$(pwd)"; export REPO_ROOT
+          . build/versions.sh   # for CROSS_MIN_OS
           OUT="$MAVERICKS_BUILD_ROOT/golang-native/out"
           base="https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG"
           NPKG=$(ls "$OUT"/*native*.pkg | head -1)
+          TITLE="Mavericks Go $(printf '%s' "$VER" | cut -d. -f1,2)"
           # sign_and_appcast.sh auto-fetches the prebuilt ed25519-sign, signs the pkg, and writes its feed.
           # native -> go$LINE.xml (10.9.5 floor)
           sh "$SH/sign_and_appcast.sh" \
-            --channel-title "Mavericks Go 1.26" --version "$VER" \
+            --channel-title "$TITLE" --version "$VER" \
             --pkg-url "$base/$(basename "$NPKG")" --notes-file dist/RELEASE_NOTES.md \
             --pkg "$NPKG" --min-os 10.9.5 --product "go$LINE" --feed-dir "$OUT"
           XPKG=$(ls "$OUT"/*cross*.pkg | head -1)
-          # cross -> go$LINE-cross.xml (modern floor: the updater is arm64/min-11)
+          # cross -> go$LINE-cross.xml (modern floor: CROSS_MIN_OS, the toolchain's own linker-stamped floor)
           sh "$SH/sign_and_appcast.sh" \
-            --channel-title "Mavericks Go 1.26 (cross)" --version "$VER" \
+            --channel-title "$TITLE (cross)" --version "$VER" \
             --pkg-url "$base/$(basename "$XPKG")" --notes-file dist/RELEASE_NOTES.md \
-            --pkg "$XPKG" --min-os 11.0 --product "go$LINE-cross" --feed-dir "$OUT"
+            --pkg "$XPKG" --min-os "$CROSS_MIN_OS" --product "go$LINE-cross" --feed-dir "$OUT"
           echo "=== go$LINE.xml ==="; cat "$OUT/go$LINE.xml"
           echo "=== go$LINE-cross.xml ==="; cat "$OUT/go$LINE-cross.xml"
 
@@ -291,8 +294,8 @@ jobs:
             | sh "$SHIPYARD_SCRIPTS/check-artifact-conformance.sh"
           # Behavior gate, per appcast: a client on this LINE's previous release must SEE this as an
           # upgrade -- a numeric sparkle:version ordering strictly after the last published tag IN THIS
-          # LINE. Scope the tag search to the line (1.26.5-mavericks.5 -> glob 1.26.*) so 1.26.7
-          # compares against 1.26.5, not a 1.27.0 shipped between. Both native + cross carry this VER.
+          # LINE. Scope the tag search to the line (e.g. <x.y>.5-mavericks.5 -> glob <x.y>.*) so <x.y>.7
+          # compares against <x.y>.5, not a later minor shipped between. Both native + cross carry this VER.
           GLOB="$(printf '%s' "${{ needs.plan.outputs.version }}" | sed 's/-mavericks\..*//' | cut -d. -f1,2).*"
           for a in "go${{ needs.plan.outputs.line }}.xml" "go${{ needs.plan.outputs.line }}-cross.xml"; do
             sh "$SHIPYARD_SCRIPTS/assert_appcast_upgradeable.sh" --appcast "dist/$a" --version "${{ needs.plan.outputs.version }}" --upstream-glob "$GLOB"

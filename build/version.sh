@@ -8,11 +8,11 @@ SELF="$(cd "$(dirname "$0")" && pwd)"
 MAVERICKS_ROOT="$(cd "$SELF/.." && pwd)"; export MAVERICKS_ROOT
 
 # One repo ships ONE Go minor LINE, from the root UPSTREAM_VERSION -- never a per-line file. The
-# LINE is derived from the upstream version (1.26.5 -> 126), never configured separately:
+# LINE is derived from the upstream version (<x.y>.z -> <line>), never configured separately:
 # CMakeLists.txt already derives MAVGO_LINE the same way, and two sources of truth for "which line
-# is this" is how a repo builds 1.26 and stamps a go127 identifier. A caller-supplied $GO_LINE is
-# honoured only as a CHECK against the derived value, never as an override -- pairing GO_LINE=127
-# with a 1.26.x UPSTREAM_VERSION is a bug, not a way to build a different line.
+# is this" is how a repo builds one line's Go and stamps another's identifier. A caller-supplied
+# $GO_LINE is honoured only as a CHECK against the derived value, never as an override -- pairing a
+# GO_LINE that disagrees with UPSTREAM_VERSION is a bug, not a way to build a different line.
 _up_root="$MAVERICKS_ROOT/UPSTREAM_VERSION"
 [ -f "$_up_root" ] || { echo "version.sh: no UPSTREAM_VERSION at repo root" >&2; exit 1; }
 _derived_line="$(tr -d '[:space:]' < "$_up_root" | sed -n 's/^\([0-9]*\)\.\([0-9]*\)\..*$/\1\2/p')"

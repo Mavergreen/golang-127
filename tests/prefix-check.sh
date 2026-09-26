@@ -8,13 +8,13 @@ if printf '%s\n' $tracked | xargs grep -l '/usr/local/mavericks-go' 2>/dev/null 
   echo "FAIL: old prefix still present in tracked files:"; printf '%s\n' $tracked | xargs grep -l '/usr/local/mavericks-go' 2>/dev/null
   exit 1
 fi
-# the otool self-link check must reference the new path, not the old bare fragment
-grep -q "mavericks-go/go126" .github/workflows/release.yml && { echo "FAIL: bare 'mavericks-go/go126' fragment remains in release.yml"; exit 1; }
 # Sanity: assert the prefixes' values, not their spelling -- they are derived from the
 # Go line (/usr/local/mavergreen/go${GO_LINE}), so grepping the source text would only pin the syntax and
 # would break the day a second line arrives.
 eval_prefix() { REPO_ROOT="$(pwd)" sh -c ". ./build/versions.sh; printf '%s\n' \"\$$1\"" 2>/dev/null; }
 line="$(sh ./build/version.sh line)"
+# the otool self-link check must reference the new path, not the old bare fragment
+grep -q "mavericks-go/go$line" .github/workflows/release.yml && { echo "FAIL: bare 'mavericks-go/go$line' fragment remains in release.yml"; exit 1; }
 [ "$(eval_prefix PREFIX)" = "/usr/local/mavergreen/go$line" ] \
   || { echo "FAIL: PREFIX is '$(eval_prefix PREFIX)', expected the product tree /usr/local/mavergreen/go$line"; exit 1; }
 [ "$(eval_prefix CROSS_PREFIX)" = "/usr/local/mavergreen/go$line-cross" ] \

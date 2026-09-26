@@ -13,8 +13,8 @@ stage="$WORK/staging"
 if [ "$MODE" = installer ]; then
   pkg="$WORK/out/golang-${GO_VERSION}-native-${PKG_VERSION#*-}.pkg"
   test -f "$pkg" || { echo "run package-pkg.sh first" >&2; exit 1; }
-  rsync -a "$pkg" "$MAVERICKS_HOST:/tmp/go126.pkg"
-  ssh "$MAVERICKS_HOST" "sudo installer -pkg /tmp/go126.pkg -target /"
+  rsync -a "$pkg" "$MAVERICKS_HOST:/tmp/go$GO_LINE.pkg"
+  ssh "$MAVERICKS_HOST" "sudo installer -pkg /tmp/go$GO_LINE.pkg -target /"
 else
   test -x "$stage$PREFIX/bin/go" || { echo "run build-native.sh first" >&2; exit 1; }
   # /usr/local needs root on the box; use passwordless sudo (rsync as root).

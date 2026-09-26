@@ -14,5 +14,5 @@ import "C"
 import "fmt"
 
 func main() {
-	fmt.Printf("mavericks-go126 cgo ok: pid=%d\n", int64(C.my_pid()))
+	fmt.Printf("mavericks-go cgo ok: pid=%d\n", int64(C.my_pid()))
 }

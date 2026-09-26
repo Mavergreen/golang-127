@@ -6,32 +6,32 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Track Go for THIS REPO's line. One repo ships one line, so the cap keeps it on 1.26.x: Go 1.27 arrives as a new repo, typically noticed when a consumer's Renovate bump needs it, never as a bump here.",
+      "description": "Track Go for THIS REPO's line. One repo ships one line, so the cap keeps it on 1.27.x: the next minor arrives as a new repo, never as a bump here.",
       "managerFilePatterns": [
         "/^UPSTREAM_VERSION$/"
       ],
       "matchStrings": [
         "^(?<currentValue>.+?)\\s*$"
       ],
-      "depNameTemplate": "go-126",
+      "depNameTemplate": "go-127",
       "packageNameTemplate": "go",
       "datasourceTemplate": "golang-version"
     }
   ],
   "packageRules": [
     {
-      "description": "The 126 line stays on 1.26.x. Not an automerge exception -- automerge is the family default (ship-if-green) and still applies; this only stops Renovate from walking the line onto a Go minor it was never built for.",
+      "description": "The 127 line stays on 1.27.x. Not an automerge exception -- automerge is the family default (ship-if-green) and still applies; this only stops Renovate from walking the line onto a Go minor it was never built for.",
       "matchDepNames": [
-        "go-126"
+        "go-127"
       ],
-      "allowedVersions": "<1.27"
+      "allowedVersions": "<1.28"
     },
     {
-      "description": "The BOOTSTRAP Go (actions/setup-go) stays on this repo's line too. Go is self-hosting, so this is the compiler that builds the toolchain we ship -- an ingredient, not CI trivia. Left uncapped it automerged its way onto 1.27 in a repo capped to 1.26.x, silently changing a shipped artifact's inputs with a green build as the only signal, and putting the string '1.27' in a repo that must never build it. A new Go line is a new repo.",
+      "description": "The BOOTSTRAP Go (actions/setup-go) stays on this repo's line too. Go is self-hosting, so this is the compiler that builds the toolchain we ship -- an ingredient, not CI trivia. Left uncapped it automerged its way onto the next minor in a repo capped to its own line, silently changing a shipped artifact's inputs with a green build as the only signal, and putting the next line's version in a repo that must never build it. A new Go line is a new repo.",
       "matchDepNames": [
         "go"
       ],
-      "allowedVersions": "<1.27"
+      "allowedVersions": "<1.28"
     }
   ]
 }

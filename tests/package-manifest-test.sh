@@ -25,25 +25,25 @@ for p in "$WORK"/out/golang-*-native-*.pkg "$WORK"/out/golang-*-cross-*.pkg; do
     || fail "$(basename "$p"): the base component comes first"
   for comp in "$x"/*.pkg; do (cd "$V" && gzip -dc "$comp/Payload" | cpio -id --quiet); done
 done
-grep -q 'os-version min="11.0"' "$W"/x-golang-*-cross-*.pkg/Distribution || fail "the cross archive's floor is 11.0 (R3)"
+grep -q "os-version min=\"$CROSS_MIN_OS\"" "$W"/x-golang-*-cross-*.pkg/Distribution || fail "the cross archive's floor is CROSS_MIN_OS ($CROSS_MIN_OS): Go stamps the toolchain's own binaries with it"
 pb() { /usr/libexec/PlistBuddy -c "Print :$2" "$V/usr/local/mavergreen/$1/mavergreen.plist"; }
-[ "$(pb go126 group)/$(pb go126 line)" = go/126 ] || fail "go126 is group go, line 126"
-[ "$(pb go126-cross group)/$(pb go126-cross line)" = go/126-cross ] || fail "go126-cross is group go, line 126-cross"
+[ "$(pb go$GO_LINE group)/$(pb go$GO_LINE line)" = go/$GO_LINE ] || fail "go$GO_LINE is group go, line $GO_LINE"
+[ "$(pb go$GO_LINE-cross group)/$(pb go$GO_LINE-cross line)" = go/$GO_LINE-cross ] || fail "go$GO_LINE-cross is group go, line $GO_LINE-cross"
 MG() { sh "$SHIPYARD_SCRIPTS/mavergreen.sh" --root "$V" "$@"; }
 F="$V/usr/local/mavergreen/bin"
-MG link go126 || fail "linking the native toolchain must succeed"
-MG link go126-cross || fail "linking the cross toolchain beside the native one must succeed"
+MG link go$GO_LINE || fail "linking the native toolchain must succeed"
+MG link go$GO_LINE-cross || fail "linking the cross toolchain beside the native one must succeed"
 MG check || fail "a box with both toolchains installed must pass mavergreen check"
-[ "$(MG select go)" = go126 ] || fail "the first member installed keeps the selection; installing the second never takes it"
-[ "$(readlink "$F/go")" = ../go126/bin/go ] || fail "bare go belongs to the selected member, the native toolchain"
-[ "$(readlink "$F/go-126")" = ../go126/bin/go ] || fail "go-126 runs the native toolchain"
-[ "$(readlink "$F/go-126-cross")" = ../go126-cross/bin/go ] || fail "go-126-cross runs the cross toolchain, selected or not"
-MG select go go126-cross || fail "select must move the go group to the cross toolchain"
-[ "$(readlink "$F/go")" = ../go126-cross/bin/go ] && [ "$(readlink "$F/gofmt")" = ../go126-cross/bin/gofmt ] \
+[ "$(MG select go)" = go$GO_LINE ] || fail "the first member installed keeps the selection; installing the second never takes it"
+[ "$(readlink "$F/go")" = ../go$GO_LINE/bin/go ] || fail "bare go belongs to the selected member, the native toolchain"
+[ "$(readlink "$F/go-$GO_LINE")" = ../go$GO_LINE/bin/go ] || fail "go-$GO_LINE runs the native toolchain"
+[ "$(readlink "$F/go-$GO_LINE-cross")" = ../go$GO_LINE-cross/bin/go ] || fail "go-$GO_LINE-cross runs the cross toolchain, selected or not"
+MG select go go$GO_LINE-cross || fail "select must move the go group to the cross toolchain"
+[ "$(readlink "$F/go")" = ../go$GO_LINE-cross/bin/go ] && [ "$(readlink "$F/gofmt")" = ../go$GO_LINE-cross/bin/gofmt ] \
   || fail "after select, every bare name belongs to the cross toolchain"
-[ "$(readlink "$F/go-126")" = ../go126/bin/go ] || fail "select leaves the native toolchain's versioned names alone"
+[ "$(readlink "$F/go-$GO_LINE")" = ../go$GO_LINE/bin/go ] || fail "select leaves the native toolchain's versioned names alone"
 MG check || fail "mavergreen check must stay clean after select"
-for gone in mavericks-clang mavericks-clang-126 mavericks-cross-clang mavericks-cross-clang-126-cross; do
+for gone in mavericks-clang mavericks-clang-$GO_LINE mavericks-cross-clang mavericks-cross-clang-$GO_LINE-cross; do
   [ ! -e "$F/$gone" ] && [ ! -L "$F/$gone" ] || fail "$gone is go.env's CC wrapper, not a user command"
 done
 echo "PASS: package-manifest"
