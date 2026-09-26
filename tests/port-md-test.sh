@@ -1,4 +1,5 @@
 #!/bin/sh
+# platform: host-agnostic
 # Every carried change is explained in PORT.md, and PORT.md explains nothing that is not carried.
 # A change whose reason lives only in gitignored docs gets quietly undone at the next port -- go127's
 # port nearly dropped two deliberate trust decisions exactly that way.
