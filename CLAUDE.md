@@ -19,8 +19,8 @@ install `/usr/local/mavergreen/go127` and `/usr/local/mavergreen/go127-cross`.
   No amd64 code runs in the build path; Rosetta is only an optional post-build self-test.
 - `sh build/package-pkg.sh` — stage the updater + LaunchAgent, wrap with the 10.9.5 floor →
   `.pkg` + tarball + `manifest/`.
-- `MAVERICKS_HOST=ultimate-hat sh test/smoke-mavericks.sh [installer]` — on-box smoke.
-- `sh test/trust/smoke-trust.sh` — TLS-trust acceptance (pinned LE endpoints).
+- `MAVERICKS_HOST=ultimate-hat sh tests/smoke-mavericks.sh [installer]` — on-box smoke.
+- `sh tests/trust/smoke-trust.sh` — TLS-trust acceptance (pinned LE endpoints).
 - `.github/workflows/release.yml` — CI build → EdDSA-sign → appcast → Release. Three triggers: push
   to `main` (auto-cuts `<upstream>-mavericks.1` if unreleased), a `*-mavericks.*` tag, or
   `workflow_dispatch local_release=true`.
