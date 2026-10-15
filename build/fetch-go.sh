@@ -4,8 +4,9 @@ set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/versions.sh"
 mkdir -p "$WORK"
+. "$SHIPYARD_SCRIPTS/mavericks_fetch.sh"
 tarball="$WORK/go${GO_VERSION}.src.tar.gz"
-[ -f "$tarball" ] || curl -fSL -o "$tarball" "$GO_SRC_URL"
+[ -f "$tarball" ] || shipyard_curl "$GO_SRC_URL" "$tarball"
 
 # Verify against go.dev's OWN published SHA256 (fetched fresh; not pinned in-repo).
 # This makes a Renovate version bump self-contained — no committed hash to sync.

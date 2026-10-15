@@ -19,10 +19,12 @@ ver="$(head -1 "$installed/VERSION" | sed 's/^go//')"
 pristine="$base/pristine-$ver"
 goroot="$base/goroot-$ver"
 mkdir -p "$base"
+. "$here/msc.sh"
+. "$SHIPYARD_SCRIPTS/mavericks_fetch.sh"
 
 if [ ! -d "$pristine" ]; then
   tarball="$base/go$ver.src.tar.gz"
-  curl -fsSL -o "$tarball" "https://go.dev/dl/go$ver.src.tar.gz"
+  shipyard_curl "https://go.dev/dl/go$ver.src.tar.gz" "$tarball"
   want="$(sh "$here/go-src-sha256.sh" "$ver")"
   got="$(shasum -a 256 "$tarball" | awk '{print $1}')"
   { [ -n "$want" ] && [ "$got" = "$want" ]; } || { echo "FATAL: go$ver source sha256 mismatch" >&2; exit 1; }

@@ -12,6 +12,7 @@
 set -eu
 . "$(cd "$(dirname "$0")" && pwd)/versions.sh"
 mkdir -p "$WORK"
+. "$SHIPYARD_SCRIPTS/mavericks_fetch.sh"
 out="$WORK/ca-certificates.crt"
 vend="$REPO_ROOT/vendor/cacert.pem"
 
@@ -26,7 +27,7 @@ if [ -f "$vend" ] && [ -n "$CA_SHA256" ] && [ "${MAVERICKS_CA_REFRESH:-0}" != 1 
 fi
 
 # Refresh / bootstrap path: download the latest and (re)pin + (re)vendor.
-curl -fSL -o "$out" "$CA_URL"
+shipyard_curl "$CA_URL" "$out"
 got=$(shasum -a 256 "$out" | awk '{print $1}')
 if [ -z "$CA_SHA256" ]; then
   echo "TOFU: CA bundle sha256 = $got"
