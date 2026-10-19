@@ -76,3 +76,4 @@ auto-repackage anything downstream — cut those repackages by hand when they ma
 - sdk-pin:*/go127-cross/bin/*: Go 1.27 requires macOS 13 and its linker stamps 13.0 (macho.go macVersionFlag{13,0,0}); the cross toolchain's own binaries are Go-linked, not relinked against the pinned SDK.
 - sdk-pin:*/go127-cross/pkg/tool/darwin_arm64/*: Go 1.27 requires macOS 13 and its linker stamps 13.0 (macho.go macVersionFlag{13,0,0}); the cross toolchain's own binaries are Go-linked, not relinked against the pinned SDK.
 - floor:golang-*-cross-*.pkg: the cross toolchain runs on macOS 13 and later (arm64) and only targets 10.9 -- Go 1.27 requires macOS 13 -- so its archive's install floor is 13.0, not 10.9.5
+- on-target: no 10.9 acceptance job yet; exit: a release.yml job on Mavergreen/mavericks-vm@v1 that installs this run's pkg in the guest and runs what it ships, which publish needs
