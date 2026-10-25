@@ -9,11 +9,12 @@ REPO_ROOT="$(cd "$here/../.." && pwd)"; export REPO_ROOT   # test/cross is two l
 : "${MAVERICKS_HOST:?set MAVERICKS_HOST}"
 stage="$WORK/staging-cross"
 test -x "$stage$CROSS_PREFIX/bin/go" || { echo "run build-cross.sh first" >&2; exit 1; }
+. "$here/staged-sdk.sh"; use_built_sdk "$stage$CROSS_PREFIX"
 
 export PATH="$stage$CROSS_PREFIX/bin:$PATH" GOROOT="$stage$CROSS_PREFIX"
 export GOCACHE="$WORK/.gc-xtest" GOPATH="$WORK/.gp-xtest"
 # go.env's CC is the INSTALL path; for a staged (uninstalled) test, point at the staged wrapper
-# (which self-locates its own lib/libexec). Env overrides go.env.
+# (which self-locates its own lib and SDKs). Env overrides go.env.
 export CC="$stage$CROSS_PREFIX/bin/mavericks-cross-clang"
 cd "$here/sample" && (test -f go.mod || go mod init sample) >/dev/null 2>&1
 rm -rf "$GOCACHE"   # force a clean cross-compile of std + cgo

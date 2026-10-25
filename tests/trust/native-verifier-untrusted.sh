@@ -10,6 +10,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 on_109=no
 case "$(sw_vers -productVersion 2>/dev/null)" in 10.9|10.9.*) on_109=yes ;; esac
 
+staged=no
 if [ -n "${UNTRUSTED_GOROOT:-}" ]; then
   goroot="$UNTRUSTED_GOROOT"
 else
@@ -19,10 +20,12 @@ else
     goroot="$PREFIX"
   else
     goroot="$WORK/staging-cross$CROSS_PREFIX"
+    staged=yes
     export CC="${CC:-$goroot/bin/mavericks-cross-clang}"
   fi
 fi
 [ -x "$goroot/bin/go" ] || { echo "no toolchain at $goroot -- skipping"; exit 77; }
+if [ "$staged" = yes ]; then . "$REPO_ROOT/tests/cross/staged-sdk.sh"; use_built_sdk "$goroot"; fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/untrusted.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT

@@ -67,6 +67,15 @@ string stays `v1`. Renovate can only tell us about `v1 → v2`. That is delibera
 ours, and its changes are gated by its own CI), but it means a shipyard fix does **not**
 auto-repackage anything downstream — cut those repackages by hand when they matter.
 
+## The cross toolchain takes its SDK from Longboat
+
+The 10.9 SDK is Apple's, so neither pkg carries it. The cross tree's `SDKs` is a link to
+`../sdk109/SDKs`, which `sudo longboat sdk install 10.9` fills, and the cross pkg declares
+`--requires longboat>=20261019.1`, the first Longboat with `longboat sdk install`. Without `sdk109`,
+`mavericks-cross-clang` stops at its first use and names that command. The build itself still takes
+the SDK from shipyard's `fetch_sdk.sh`, and the tests that run the staged cross toolchain point its
+`SDKs` at that copy; `package-cross-pkg.sh` restores the link.
+
 ## Conformance deviations
 
 - rosetta:.github/workflows/release.yml: the release job optionally installs Rosetta (`softwareupdate --install-rosetta --agree-to-license || true`) so `tests/rosetta-selftest.sh` can exercise the cross-produced darwin/amd64 toolchain by running it, not just inspecting its files. Both the install and the test invocation are `|| true`: this step never gates the build, it only adds a self-test when Rosetta happens to be available on the runner. Reconsider when this self-test can run on an x86_64 host (the 10.9 box or an Intel runner) instead; at the latest before macOS 28 removes Rosetta.

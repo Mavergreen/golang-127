@@ -8,6 +8,8 @@ stage="$WORK/staging-cross"
 test -x "$stage$CROSS_PREFIX/bin/go" || { echo "run build-cross.sh first" >&2; exit 1; }
 test -x "$stage$CROSS_PREFIX/bin/mavericks-cross-clang" || { echo "FATAL: cross CC wrapper not staged" >&2; exit 1; }
 
+rm -rf "$stage$CROSS_PREFIX/SDKs"; ln -s ../sdk109/SDKs "$stage$CROSS_PREFIX/SDKs"
+
 out="$WORK/out"; mkdir -p "$out"
 base="golang-${GO_VERSION}-cross-${PKG_VERSION#*-}"   # golang-<x.y.z>-cross-mavericks.<rev>
 pkg="$out/$base.pkg"
@@ -17,7 +19,7 @@ UPD_APP="${UPD_APP:-/updater-cross/go${GO_LINE}-cross-updater.app}"
 scr="$out/pkg-scripts-cross"; rm -rf "$scr"
 set -- --stage "$stage" --product "go${GO_LINE}-cross" --name "Go ${GO_VERSION%.*} cross toolchain for Mavericks" \
   --group go --line "${GO_LINE}-cross" --version "$PKG_VERSION" \
-  --exclude bin/mavericks-cross-clang --scripts-out "$scr"
+  --exclude bin/mavericks-cross-clang --requires "longboat>=20261019.1" --scripts-out "$scr"
 if [ -d "$UPD_APP" ]; then
   set -- "$@" --updater-app "$UPD_APP"
 else

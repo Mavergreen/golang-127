@@ -25,8 +25,20 @@ for p in "$WORK"/out/golang-*-native-*.pkg "$WORK"/out/golang-*-cross-*.pkg; do
     || fail "$(basename "$p"): the base component comes first"
   for comp in "$x"/*.pkg; do (cd "$V" && gzip -dc "$comp/Payload" | cpio -id --quiet); done
 done
+lb() { mkdir -p "$1/usr/local/mavergreen/longboat"; printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>product</key><string>longboat</string><key>version</key><string>%s</string></dict></plist>\n' "$2" > "$1/usr/local/mavergreen/longboat/mavergreen.plist"; }
+pre() { ls "$W"/x-golang-*-$1-*.pkg/*.pkg/Scripts/preinstall | grep -v base; }
+XP="$(pre cross)"; NP="$(pre native)"
+E="$W/vol-none"; mkdir -p "$E"
+if sh "$XP" x x "$E" > "$W/pre.out" 2>&1; then fail "the cross preinstall refuses a volume without Longboat"; fi
+grep -q longboat "$W/pre.out" || { cat "$W/pre.out"; fail "the cross preinstall's refusal names Longboat"; }
+sh "$NP" x x "$E" > "$W/pre.out" 2>&1 || { cat "$W/pre.out"; fail "the native preinstall needs no Longboat: the native toolchain links with the box's own SDK"; }
+E="$W/vol-old"; mkdir -p "$E"; lb "$E" 20261012.10
+if sh "$XP" x x "$E" > "$W/pre.out" 2>&1; then fail "the cross preinstall refuses a Longboat older than 20261019.1, which has no 'longboat sdk install'"; fi
+E="$W/vol-new"; mkdir -p "$E"; lb "$E" 20261019.1
+sh "$XP" x x "$E" > "$W/pre.out" 2>&1 || { cat "$W/pre.out"; fail "the cross preinstall proceeds once Longboat 20261019.1 or later is installed"; }
 grep -q "os-version min=\"$CROSS_MIN_OS\"" "$W"/x-golang-*-cross-*.pkg/Distribution || fail "the cross archive's floor is CROSS_MIN_OS ($CROSS_MIN_OS): Go stamps the toolchain's own binaries with it"
 pb() { /usr/libexec/PlistBuddy -c "Print :$2" "$V/usr/local/mavergreen/$1/mavergreen.plist"; }
+[ "$(readlink "$V/usr/local/mavergreen/go$GO_LINE-cross/SDKs")" = ../sdk109/SDKs ] || fail "the cross tree's SDKs is a link into Longboat's sdk109, where sudo longboat sdk install 10.9 puts the SDK"
 [ "$(pb go$GO_LINE group)/$(pb go$GO_LINE line)" = go/$GO_LINE ] || fail "go$GO_LINE is group go, line $GO_LINE"
 [ "$(pb go$GO_LINE-cross group)/$(pb go$GO_LINE-cross line)" = go/$GO_LINE-cross ] || fail "go$GO_LINE-cross is group go, line $GO_LINE-cross"
 MG() { sh "$SHIPYARD_SCRIPTS/mavergreen.sh" --root "$V" "$@"; }
