@@ -42,4 +42,4 @@ echo "$pkg"
 sh "$SHIPYARD_SCRIPTS/build-info.sh" "$out/build-info-cross.txt" \
   variant=cross arch=arm64 prefix="$CROSS_PREFIX" \
   go_version="$GO_VERSION" go_line="$GO_LINE" \
-  mls_version="$MLS_VERSION" ca_sha256="$CA_SHA256"
+  recaulk_version="$RECAULK_VERSION" ca_sha256="$CA_SHA256"

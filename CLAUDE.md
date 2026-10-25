@@ -15,8 +15,8 @@ which install `/usr/local/mavergreen/go127` and `/usr/local/mavergreen/go127-cro
 
 ## Build / release
 
-- `sh build/build-native.sh` — **Rosetta-free**: fetch go1.27.1 → apply `patches/` → build
-  static macports-legacy-support → native arm64 `make.bash` builder → cross `go install cmd` for
+- `sh build/build-native.sh` — **Rosetta-free**: fetch go1.27.1 → apply `patches/` → fetch
+  the prebuilt Recaulk archive → native arm64 `make.bash` builder → cross `go install cmd` for
   amd64 (via a build-time `-arch x86_64`/min-10.9 CC wrapper) → assemble amd64 GOROOT (local `WORK`).
   No amd64 code runs in the build path; Rosetta is only an optional post-build self-test.
 - `sh build/package-pkg.sh` — stage the updater + LaunchAgent, wrap with the 10.9.5 floor →

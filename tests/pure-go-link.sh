@@ -1,7 +1,7 @@
 #!/bin/sh
 # platform: macOS-only -- builds darwin/amd64 programs with the toolchain and inspects their Mach-O
 # A PURE-Go program (no cgo) built by our toolchain must be 10.9-safe: external-linked through the
-# CC wrapper (legacy shim + 10.9 minimum), not internal-linked to Go's 12.0 floor with clock_gettime
+# CC wrapper (Recaulk + 10.9 minimum), not internal-linked to Go's 12.0 floor with clock_gettime
 # unresolved. Covers the default build, CGO_ENABLED=0 and a `go test` binary, and checks that a
 # cross-OS build (GOOS=linux CGO_ENABLED=0) still links internally.
 #   On the 10.9 box: builds AND runs.            PURE_GO_GOROOT=/usr/local/mavergreen/go<line> sh pure-go-link.sh
@@ -40,7 +40,7 @@ import (
 	"time"
 )
 
-// time.Now reaches clock_gettime, which 10.9's libSystem lacks: the legacy shim must be linked in.
+// time.Now reaches clock_gettime, which 10.9's libSystem lacks: Recaulk must be linked in.
 func main() { fmt.Println("pure-go ok", time.Now().Year() > 2000) }
 EOF
 cat > "$tmp/app/main_test.go" <<'EOF'

@@ -9,7 +9,7 @@ port. An own-upstream bump cuts `<upstream>-mavericks.1`; an ingredient bump cut
 | Ingredient | Pinned in | Renovate | On a bump |
 |---|---|---|---|
 | Go source (own upstream) | `UPSTREAM_VERSION` | ✅ `golang-version` datasource, **capped to this line** (`<1.28`), patch-automerged | `release.yml` on push to main cuts `-mavericks.1` |
-| macports-legacy-support shim (prebuilt) | `MLS_VERSION # mavericks-legacysupport` in `build/versions.sh` | ✅ shared preset's `# mavericks-legacysupport` customManager | `build/versions.sh` is a watched path → repackage dispatched |
+| Recaulk (librecaulk.a, prebuilt) | `components/recaulk/version` | ✅ shipyard preset (github-releases on Mavergreen/recaulk) | watched path → repackage dispatched |
 | curl.se CA bundle | `vendor/cacert.pem`, hash-pinned by `CA_SHA256` in `build/versions.sh` | ❌ **untrackable — manual refresh** (see below) | both are watched paths → repackage dispatched when the refresh lands |
 | Bootstrap Go (builds the toolchain) | `go-version: '1.27.x'` on `actions/setup-go` in `.github/workflows/release.yml` | ✅ github-actions `uses-with`, **capped to this line** (`<1.28`) | `release.yml` is not a watched path, so cut the repackage deliberately |
 | MacOSX10.9 SDK, Sparkle framework | `Mavergreen/shipyard@v1` | ✅ github-actions manager tracks the tag | `@v1` is a *moving* tag, so content moves without any path changing (see below) |
@@ -76,4 +76,5 @@ auto-repackage anything downstream — cut those repackages by hand when they ma
 - sdk-pin:*/go127-cross/bin/*: Go 1.27 requires macOS 13 and its linker stamps 13.0 (macho.go macVersionFlag{13,0,0}); the cross toolchain's own binaries are Go-linked, not relinked against the pinned SDK.
 - sdk-pin:*/go127-cross/pkg/tool/darwin_arm64/*: Go 1.27 requires macOS 13 and its linker stamps 13.0 (macho.go macVersionFlag{13,0,0}); the cross toolchain's own binaries are Go-linked, not relinked against the pinned SDK.
 - floor:golang-*-cross-*.pkg: the cross toolchain runs on macOS 13 and later (arm64) and only targets 10.9 -- Go 1.27 requires macOS 13 -- so its archive's install floor is 13.0, not 10.9.5
+- rosetta:tests/trust/native-verifier-untrusted.sh: on the arm64 CI runner it executes the cross-built darwin/amd64 fixture (no `arch -x86_64`; macOS routes the exec through Rosetta, which the release job primes) to see Apple's verifier, reached through Recaulk's `SecTrustEvaluateWithError` trampoline, reject an untrusted chain. It runs that half only when amd64 exec works and never gates on it: the `nm` check that the trampoline is linked in is the gate. Reconsider when the check can run on an x86_64 host newer than 10.9 (an Intel runner); at the latest before macOS 28 removes Rosetta.
 - on-target: no 10.9 acceptance job yet; exit: a release.yml job on Mavergreen/mavericks-vm@v1 that installs this run's pkg in the guest and runs what it ships, which publish needs

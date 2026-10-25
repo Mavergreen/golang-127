@@ -197,6 +197,12 @@ jobs:
       - name: Pure-Go programs from the cross toolchain are 10.9-safe
         run: sh tests/pure-go-link.sh
 
+      - name: A cgo program with its own copy of a Recaulk back-fill still links
+        run: sh tests/cgo-own-polyfill.sh
+
+      - name: Apple's verifier still rejects an untrusted chain
+        run: sh tests/trust/native-verifier-untrusted.sh
+
       - name: Build the cross Sparkle updater app (native arm64)
         run: |
           BUILD="$MAVERICKS_BUILD_ROOT/golang-updater-cross"

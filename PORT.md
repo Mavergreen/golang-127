@@ -81,8 +81,8 @@ interface above, but the overlay reaches into upstream's own unexported state to
 ## Carried changes
 
 ### 0001-make-bash-bootstrap-ldflags.patch
-Hook. Injects the legacy-support link flags into cmd/dist's bootstrap build, from
-`GO_BOOTSTRAP_LDFLAGS`; inert when unset. *Why:* the bootstrap toolchain must link the 10.9 shim.
+Hook. Injects the Recaulk link flags into cmd/dist's bootstrap build, from
+`GO_BOOTSTRAP_LDFLAGS`; inert when unset. *Why:* the bootstrap toolchain must link Recaulk.
 *Reconsider:* if the build stops building a bootstrap that runs on 10.9.
 
 ### 0002-cmd-dist-buildtool-bootstrap-ldflags.patch
@@ -177,7 +177,7 @@ asserting upstream's darwin semantics.
 
 - The CA bundle itself (`vendor/cacert.pem`, curl.se's Mozilla export) is an ingredient, not a
   change — see INGREDIENTS.md.
-- The 10.9 legacy-support shim is an ingredient (`Mavergreen/macports-legacy-support`).
+- The 10.9 back-fill archive is an ingredient (`Mavergreen/recaulk`, pinned in `components/recaulk/version`).
 
 ## Last verified
 

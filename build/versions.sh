@@ -43,11 +43,9 @@ else
 fi
 export GO_SRC_URL="https://go.dev/dl/go${GO_VERSION}.src.tar.gz"
 
-# The 10.9 legacy-support shim is fetched PREBUILT from the mavericks-legacysupport
-# release (Mavergreen/macports-legacy-support) — no from-source build here. Integrity is
-# checked against the release's SHA256SUMS every run. Renovate bumps this pin via the
-# shared preset's `# mavericks-legacysupport` customManager (unquoted, marker on the line).
-export MLS_VERSION=1.5.2-mavericks.6   # mavericks-legacysupport
+RECAULK_VERSION="$(tr -d ' \t\r\n' < "$REPO_ROOT/components/recaulk/version")"
+[ -n "$RECAULK_VERSION" ] || { echo "versions.sh: components/recaulk/version is empty" >&2; exit 1; }
+export RECAULK_VERSION
 
 export PREFIX="/usr/local/mavergreen/go${GO_LINE}"
 export MACOS_MIN="10.9"
@@ -61,7 +59,7 @@ export NATIVE_PREFIX="/usr/local/mavergreen/go${GO_LINE}"
 export CROSS_PREFIX="/usr/local/mavergreen/go${GO_LINE}-cross"
 export CA_DIR="$NATIVE_PREFIX/etc/openssl"   # @SSLDIR@ substitution target (native == cross)
 
-export WLU_SYMS="_SecTrustEvaluateWithError _SecTrustCopyCertificateChain _notify_is_valid_token _xpc_date_create_from_current"
+export WLU_SYMS="_xpc_date_create_from_current"
 
 # CA bundle: curl.se cacert.pem. CA_SHA256 is blessed (TOFU) in Task 5.
 export CA_URL="https://curl.se/ca/cacert.pem"

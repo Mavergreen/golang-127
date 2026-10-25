@@ -1,15 +1,15 @@
 name: repackage-on-ingredient-bump
 
-# When a build ingredient in versions.sh (the legacysupport shim, the CA bundle) is bumped by Renovate,
-# dispatch a -mavericks.(N+1) repackage via the shared reusable workflow — release.yml's workflow_dispatch
-# local_release path cuts+publishes inline. The Go version (own upstream, UPSTREAM_VERSION) stays the N=1
-# path handled by release.yml on push-to-main, so it's excluded here.
+# A bumped build ingredient (the Recaulk pin, the CA bundle) dispatches a -mavericks.(N+1) repackage
+# through the shared reusable workflow; release.yml's workflow_dispatch local_release path cuts and
+# publishes it. The Go version (own upstream, UPSTREAM_VERSION) is release.yml's N=1 path on push to main.
 
 on:
   push:
     branches: [main]
     paths:
-      - build/versions.sh    # the legacysupport shim pin, the CA bundle's hash pin
+      - components/recaulk/version
+      - build/versions.sh    # the CA bundle's hash pin
       - vendor/cacert.pem    # the vendored CA bundle itself (refreshed by hand; see INGREDIENTS.md)
 
 jobs:
