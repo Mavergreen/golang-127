@@ -19,7 +19,7 @@ UPD_APP="${UPD_APP:-/updater-cross/go${GO_LINE}-cross-updater.app}"
 scr="$out/pkg-scripts-cross"; rm -rf "$scr"
 set -- --stage "$stage" --product "go${GO_LINE}-cross" --name "Go ${GO_VERSION%.*} cross toolchain for Mavericks" \
   --group go --line "${GO_LINE}-cross" --version "$PKG_VERSION" \
-  --exclude bin/mavericks-cross-clang --requires "longboat>=20261019.1" --scripts-out "$scr"
+  --exclude bin/mavericks-cross-clang --scripts-out "$scr"
 if [ -d "$UPD_APP" ]; then
   set -- "$@" --updater-app "$UPD_APP"
 else
