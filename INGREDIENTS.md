@@ -70,8 +70,8 @@ auto-repackage anything downstream — cut those repackages by hand when they ma
 ## The cross toolchain takes its SDK from Longboat
 
 The 10.9 SDK is Apple's, so neither pkg carries it. The cross tree's `SDKs` is a link to
-`../sdk109/SDKs`, which `sudo longboat sdk install 10.9` fills, and the cross pkg declares
-`--requires longboat>=20261019.1`, the first Longboat with `longboat sdk install`. Without `sdk109`,
+`../sdk109/SDKs`, which `sudo longboat sdk install 10.9` fills (Longboat 20261019.1 or later). The cross
+pkg installs without Longboat, because a pure-Go build never needs the SDK. Without `sdk109`,
 `mavericks-cross-clang` stops at its first use and names that command. The build itself still takes
 the SDK from shipyard's `fetch_sdk.sh`, and the tests that run the staged cross toolchain point its
 `SDKs` at that copy; `package-cross-pkg.sh` restores the link.
