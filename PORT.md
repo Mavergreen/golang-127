@@ -173,6 +173,13 @@ invariants 1, 5). `TestSSLCertEnvOverride` keeps running and asserts invariant 4
 `tests/trust/unit-trust.sh` requires all four skips. *Reconsider:* when upstream's tests stop
 asserting upstream's darwin semantics.
 
+### 0019-cmd-link-macos-default-10.9.patch
+Hook. A darwin/amd64 link defaults to minimum OS 10.9 instead of Go's 13.0; `-ldflags=-macos=X` still
+overrides, and other targets (the cross toolchain's own darwin_arm64 tools) keep 13.0. *Why:* the external
+linker is lld (clang22), which warns on every link when Go's go.o claims 13.0 while the target minimum is
+10.9; Apple's old ld64 was silent. The binary's floor was already 10.9. golang-port's on-target suite fails
+on that warning. *Reconsider:* when Go's own default drops to 10.9 or below (never), or 10.9 stops being a target.
+
 ## Not carried here
 
 - The CA bundle itself (`vendor/cacert.pem`, curl.se's Mozilla export) is an ingredient, not a
