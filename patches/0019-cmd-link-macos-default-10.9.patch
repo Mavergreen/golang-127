@@ -1,0 +1,27 @@
+Default the minimum OS a darwin/amd64 link stamps to 10.9, not Go's 13.0. Every darwin/amd64
+link goes through the external linker (patches 0011/0012), and the go.o Go hands it carried
+LC_BUILD_VERSION minos 13.0; Apple's old ld64 said nothing, but lld (clang22) warns on every link
+"go.o has version 13.0.0, which is newer than target minimum of 10.9.0". The final binary's floor
+was already 10.9 (the CC wrapper's -mmacosx-version-min); this only makes the object agree.
+-ldflags=-macos=X still overrides (flags are parsed after init). Other targets, the cross
+toolchain's own darwin_arm64 tools included, keep Go's default.
+
+--- src/cmd/link/internal/ld/macho.go.orig
++++ src/cmd/link/internal/ld/macho.go
+@@ -450,6 +450,16 @@
+ 	macSDK = macVersionFlag{26, 2, 0}
+ )
+ 
++// Mavericks: a darwin/amd64 link defaults to a 10.9 minimum OS, the floor every Mavergreen
++// darwin/amd64 binary carries. The external linker (lld) warns on every link when the go.o
++// Go hands it says 13.0 while the target minimum is 10.9. -macos still overrides: flags are
++// parsed after init. Other targets keep the default above.
++func init() {
++	if buildcfg.GOOS == "darwin" && buildcfg.GOARCH == "amd64" {
++		macOS = macVersionFlag{10, 9, 0}
++	}
++}
++
+ func (ctxt *Link) domacho() {
+ 	if *FlagD {
+ 		return
