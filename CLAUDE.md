@@ -33,7 +33,20 @@ which install `/usr/local/mavergreen/go127` and `/usr/local/mavergreen/go127-cro
 - `sh tests/trust/smoke-trust.sh` — TLS-trust acceptance (pinned LE endpoints).
 - `.github/workflows/release.yml` — CI build → EdDSA-sign → appcast → Release. Three triggers: push
   to `main` (auto-cuts `<upstream>-mavericks.1` if unreleased), a `*-mavericks.*` tag, or
-  `workflow_dispatch local_release=true`.
+  `workflow_dispatch local_release=true`. Jobs:
+  - `build` (`ubuntu-latest`): install@v1 `products:` installs clang22 and Recaulk at their pins
+    (`components/*/version`); `MAVERGREEN_RELEASE=yes` makes `build/port.sh` refuse `GOLANG_PORT_DIR`. It runs
+    the repo tests, the port's `cross-vet.sh`, `build-native`, `build-cross` and `build-linux-cross`, the compat
+    guard (clang22's `llvm-*` as `LIPO`/`OTOOL`/`NM`), both updaters and both pkgs. The archive smoke extracts
+    `go127-cross-<version>-linux-x86_64.tar.gz` at `/usr/local/mavergreen/go127-cross` and runs
+    `tests/cross-smoke.sh`. It also asserts that `release-assets.sh` selects the archive exactly once, so
+    publish's `SHA256SUMS` lists it once. Then sign, appcast and conformance.
+  - `on-target` (`ubuntu-latest`, `Mavergreen/mavericks-vm@v1`, PRs too): on a fresh 10.9 guest the native
+    pkg must first refuse without clang22, naming it. Then Longboat's sdk109, clang22 and the pkg go in,
+    and the port's `tests/on-target/run.sh` runs.
+  - `modern-smoke` (`macos-26`, PRs too): installs clang22-cross by install@v1 `products:`, then the cross
+    pkg. `go` must run natively on arm64, and `tests/cross-smoke.sh` must pass.
+  - `publish` needs `build`, `scan`, `on-target` and `modern-smoke`.
 - **This repo ships ONE Go minor line (1.27) from the repo root.** `UPSTREAM_VERSION` and `patches/`
   live at the top level, not under a per-line directory; everything else derives from the line number
   (the products `go127` and `go127-cross` in `/usr/local/mavergreen/`, group `go`,

@@ -1,6 +1,7 @@
 name: release
 
-# Builds BOTH of this line's products on a modern Apple-Silicon runner. Three entry points:
+# Builds BOTH of this line's products, and the Linux cross archive, on ubuntu-latest through golang-port's
+# build chain (build/port.sh resolves the pinned port). Three entry points:
 #   - push to main   : build; if the current upstream (UPSTREAM_VERSION) has no release yet,
 #                       auto-cut <upstream>-mavericks.1 (build/version.sh auto -> RELEASE=yes)
 #   - a *-mavericks.* tag : publish that exact version
@@ -8,10 +9,15 @@ name: release
 # Products:
 #   - native (runs on 10.9): amd64/min-10.9 toolchain + x86_64 Sparkle updater + 10.9.5 floor
 #   - cross  (runs on modern macOS, targets 10.9): native arm64 toolchain + arm64 Sparkle updater
-# Each is EdDSA-signed with its own feed (go<line>.xml / go<line>-cross.xml), which its updater polls at
+#   - go<line>-cross-<version>-linux-x86_64.tar.gz: the linux/amd64 toolchain that targets 10.9, which
+#     install@v1 `products:` extracts at /usr/local/mavergreen/go<line>-cross on a Linux runner
+# Each pkg is EdDSA-signed with its own feed (go<line>.xml / go<line>-cross.xml), which its updater polls at
 # this repo's /releases/latest/download/, so there is no separate feed release. Publishing is the
-# shared publish-release.yml, which mints the tag itself (no PAT) and refuses an empty Release body.
-# No 10.9 runner anywhere; the published artifacts are re-validated on a real 10.9 box out-of-band.
+# shared publish-release.yml, which mints the tag itself (no PAT), refuses an empty Release body and
+# writes SHA256SUMS over every asset. Before publish: on-target installs the native pkg on a 10.9 guest
+# (Mavergreen/mavericks-vm) and modern-smoke installs the cross pkg on an Apple Silicon runner; both run
+# on pull requests too, so a green PR means merging it publishes.
+
 
 on:
   push:
@@ -101,32 +107,56 @@ jobs:
           { echo "line=$line"; echo "version=$full"; } >> "$GITHUB_OUTPUT"
           if [ "$rel" = yes ]; then echo "any_publish=true" >> "$GITHUB_OUTPUT"; else echo "any_publish=false" >> "$GITHUB_OUTPUT"; fi
 
+
   build:
     needs: plan
+    runs-on: ubuntu-latest
     env:
       GO_LINE: ${{ needs.plan.outputs.line }}
-    runs-on: macos-26   # Apple Silicon (arm64) — mirrors local Tahoe; use macos-15 if 26 is unavailable
+      # build/port.sh refuses a set GOLANG_PORT_DIR under this: nothing ships from an unpinned port.
+      MAVERGREEN_RELEASE: 'yes'
+      # Every port step is `LINE_ROOT=<this checkout> sh "$PORT_DIR/build/<step>.sh"`.
+      LINE_ROOT: ${{ github.workspace }}
+      # A Linux host has no Mach-O reader of its own: the compat guard, conformance and the smokes read
+      # binaries with clang22's, which shipyard's scripts take from these.
+      LIPO: /usr/local/mavergreen/clang22/bin/llvm-lipo
+      OTOOL: /usr/local/mavergreen/clang22/bin/llvm-otool
+      NM: /usr/local/mavergreen/clang22/bin/llvm-nm
+      STRINGS: /usr/local/mavergreen/clang22/bin/llvm-strings
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # build/version.sh counts existing <upstream>-mavericks.* tags
 
-      - name: Install mavericks-shipyard
-        # shipyard installs itself via its own action: the pkg, which puts shipyard-cmake on PATH and
-        # exports $SHIPYARD_SCRIPTS. We do NOT clone or build it by hand. @v1 is the moving major tag;
-        # Renovate's github-actions manager tracks it (no SHA, no marker comment). shipyard's config
-        # auto-scaffolds our .github/renovate.json. Consumed via find_package under shipyard-cmake.
+      # The C toolchain is pinned in files, not here, so Renovate bumps one place and the port's
+      # c-toolchain.sh checks the installed products against the same files (strictly, since CI=true).
+      - name: Read the C toolchain pins
+        id: pins
+        run: |
+          set -eu
+          { echo "clang22=$(tr -d '[:space:]' < components/clang22/version)"
+            echo "recaulk=$(tr -d '[:space:]' < components/recaulk/version)"; } >> "$GITHUB_OUTPUT"
+
+      - name: Install mavericks-shipyard, clang22 and Recaulk
+        # shipyard installs itself via its own action, and `products:` installs each family product at
+        # its pin with what it requires (clang22 brings sdk109), at its macOS pkg's prefix under
+        # /usr/local/mavergreen, where the port's build scripts look for them on every host.
         uses: Mavergreen/shipyard/.github/actions/install@v1
+        with:
+          products: clang22@${{ steps.pins.outputs.clang22 }} recaulk@${{ steps.pins.outputs.recaulk }}
 
       - name: Record the pre-build tree
         run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh" --record
 
       - name: Build out of tree
-        run: echo "MAVERICKS_BUILD_ROOT=$RUNNER_TEMP/mm-build" >> "$GITHUB_ENV"
+        run: |
+          echo "MAVERICKS_BUILD_ROOT=$RUNNER_TEMP/mm-build" >> "$GITHUB_ENV"
+          # the port's build/env.sh puts WORK at $MAVERICKS_BUILD_ROOT/golang-go<line>; its out/ holds every product
+          echo "GO_OUT=$RUNNER_TEMP/mm-build/golang-go$GO_LINE/out" >> "$GITHUB_ENV"
 
       # The plan job already decided this line's version; take it rather than recomputing, so every
       # job in the run agrees about what is being built. VERSION is written locally (never committed)
-      # because the cmake configure and the updater bundle read it.
+      # because the port's env.sh and the updater bundle read it.
       - name: Take this line's version from the plan
         id: ver
         run: |
@@ -134,22 +164,22 @@ jobs:
           full="${{ needs.plan.outputs.version }}"
           printf '%s\n' "$full" > VERSION
           { echo "full=$full"; echo "tag=$full"; } >> "$GITHUB_OUTPUT"
+          echo "VER=$full" >> "$GITHUB_ENV"
           echo "line=$GO_LINE version=$full"
 
-      - name: Bootstrap Go (arm64, >= 1.24)
+      - name: Bootstrap Go (linux amd64, >= 1.24)
         uses: actions/setup-go@v7
         with: { go-version: '1.27.x' }
+
+      - name: Hand the bootstrap to the port's builder
+        run: echo "GOROOT_BOOTSTRAP=$(go env GOROOT)" >> "$GITHUB_ENV"
 
       - name: pkgsrc rename guard
         run: sh tests/trust/rename-check.sh
 
-      - name: Trust-model unit tests
-        run: GOROOT_BOOTSTRAP="$(go env GOROOT)" sh tests/trust/unit-trust.sh
-
       # The shared runner takes the whole top-level suite, so a newly added test runs the day it lands
-      # instead of when someone remembers a CI line. Tests needing a built toolchain (compat-guard) or
-      # a real 10.9 box (smoke-mavericks) exit 77 and report SKIP here; the compat guard's real gate is
-      # its explicit post-build invocation below, which passes the shipped binaries.
+      # instead of when someone remembers a CI line. Tests needing a built toolchain or a real 10.9 box
+      # exit 77 and report SKIP here; on-target runs the trust tests on the installed toolchain.
       - name: Run the repo's tests
         run: sh "$SHIPYARD_SCRIPTS/run-repo-tests.sh"
 
@@ -158,62 +188,64 @@ jobs:
       - name: Guard the ingredient pin declaration
         run: sh "$SHIPYARD_SCRIPTS/check-ingredient-pins.sh"
 
-      - name: Cross-build the native toolchain (Rosetta-free)
-        run: sh build/build-native.sh
-
-      - name: Compat guard on the shipped toolchain binaries
+      - name: Resolve the pinned golang-port
         run: |
-          stage="$MAVERICKS_BUILD_ROOT/golang-native/staging/usr/local/mavergreen/go$GO_LINE"
-          sh tests/compat-guard.sh "$stage/bin/go" "$stage/bin/gofmt" "$stage"/pkg/tool/darwin_amd64/*
+          set -eu
+          PORT_DIR="$(sh build/port.sh)"
+          echo "PORT_DIR=$PORT_DIR" >> "$GITHUB_ENV"
+          echo "golang-port $(tr -d '[:space:]' < "$PORT_DIR/UPSTREAM_VERSION") at $PORT_DIR"
 
-      - name: Optional amd64 self-test under Rosetta (best-effort, never gates)
+      # The fast fail for crypto/x509 on darwin: the patched tree must vet and compile its tests for
+      # darwin/amd64 before an hour goes into toolchains. cross-vet needs the builder make.bash leaves,
+      # which the toolchain builds below reuse; its skip (77) would mean nothing was checked.
+      - name: Patched crypto/x509 vets for darwin/amd64
         run: |
-          softwareupdate --install-rosetta --agree-to-license || true
-          sh tests/rosetta-selftest.sh || true
+          set -eu
+          sh "$PORT_DIR/build/build-builder.sh"
+          status=0; sh "$PORT_DIR/tests/cross-vet.sh" || status=$?
+          [ "$status" -eq 0 ] || { echo "::error::cross-vet.sh exited $status (77, a skip, is a failure here)"; exit 1; }
 
-      - name: Build the Sparkle updater app (Cocoa/ObjC; must not link Go)
+      - name: Build the native toolchain
+        run: sh "$PORT_DIR/build/build-native.sh"
+
+      - name: Build the cross toolchain (darwin/arm64)
+        run: sh "$PORT_DIR/build/build-cross.sh"
+
+      - name: Build the Linux cross archive (linux/amd64)
+        run: sh "$PORT_DIR/build/build-linux-cross.sh"
+
+      - name: Compat guard on the shipped native toolchain binaries
         run: |
-          BUILD="$MAVERICKS_BUILD_ROOT/golang-updater"
-          # find_package resolves MavericksShipyard from shipyard-cmake's own prefix (the pkg installed
-          # above); no CMAKE_PREFIX_PATH, no vendored copy. The x86_64 Sparkle slice is auto-derived from
-          # the native updater's CMAKE_OSX_ARCHITECTURES by mavericks_add_updater_app.
-          shipyard-cmake -S . -B "$BUILD" -DCMAKE_OBJC_COMPILER=/usr/bin/clang \
-            -DCMAKE_TOOLCHAIN_FILE="$SHIPYARD_SCRIPTS/../MavericksToolchain.cmake"
-          shipyard-cmake --build "$BUILD" --target go${{ needs.plan.outputs.line }}-updater
-          otool -L "$BUILD/go${{ needs.plan.outputs.line }}-updater.app/Contents/MacOS/go${{ needs.plan.outputs.line }}-updater" > /tmp/o.txt
-          cat /tmp/o.txt
-          ! grep -qi 'usr/local/mavergreen/' /tmp/o.txt || { echo "::error::updater links the toolchain it updates"; exit 1; }
+          stage="$MAVERICKS_BUILD_ROOT/golang-go$GO_LINE/staging/usr/local/mavergreen/go$GO_LINE"
+          sh "$PORT_DIR/tests/compat-guard.sh" "$stage/bin/go" "$stage/bin/gofmt" "$stage"/pkg/tool/darwin_amd64/*
 
-      - name: Package the native .pkg (updater + 10.9.5 floor) + tarball + manifest
-        run: UPD_APP="$MAVERICKS_BUILD_ROOT/golang-updater/go${{ needs.plan.outputs.line }}-updater.app" sh build/package-pkg.sh
-
-      # --- cross product (runs on modern macOS, targets 10.9) ---
-      - name: Cross-build the cross toolchain (native arm64)
-        run: sh build/build-cross.sh
-
-      # A pure-Go program (no cgo) must come out 10.9-safe too: Go internal-links those unless the
-      # toolchain defaults darwin/amd64 to external linking (patches 0011/0012). The top-level test
-      # runner already ran this script before anything was built, where it SKIPs (77).
-      - name: Pure-Go programs from the cross toolchain are 10.9-safe
-        run: sh tests/pure-go-link.sh
-
-      - name: A cgo program with its own copy of a Recaulk back-fill still links
-        run: sh tests/cgo-own-polyfill.sh
-
-      - name: Apple's verifier still rejects an untrusted chain
-        run: sh tests/trust/native-verifier-untrusted.sh
-
-      - name: Build the cross Sparkle updater app (native arm64)
+      - name: Build both Sparkle updaters (Cocoa/ObjC, clang22; must not link Go)
         run: |
-          BUILD="$MAVERICKS_BUILD_ROOT/golang-updater-cross"
-          # The arm64 Sparkle slice is auto-derived from the cross updater's CMAKE_OSX_ARCHITECTURES
-          # (arm64, set by MAVGO_VARIANT=cross) -- no hand-plumbed framework path.
-          shipyard-cmake -S . -B "$BUILD" -DMAVGO_VARIANT=cross -DCMAKE_OBJC_COMPILER=/usr/bin/clang \
-            -DCMAKE_TOOLCHAIN_FILE="$SHIPYARD_SCRIPTS/../MavericksToolchain.cmake"
-          shipyard-cmake --build "$BUILD" --target go${{ needs.plan.outputs.line }}-cross-updater
+          set -eu
+          app="$(CMAKE="$(command -v cmake)" sh "$PORT_DIR/build/build-updater.sh" native)"
+          CMAKE="$(command -v cmake)" sh "$PORT_DIR/build/build-updater.sh" cross
+          exe="$app/Contents/MacOS/$(basename "$app" .app)"
+          "$OTOOL" -L "$exe" > "$RUNNER_TEMP/updater-libs.txt"
+          cat "$RUNNER_TEMP/updater-libs.txt"
+          ! grep -qi 'usr/local/mavergreen/' "$RUNNER_TEMP/updater-libs.txt" || { echo "::error::updater links the toolchain it updates"; exit 1; }
 
-      - name: Package the cross .pkg + tarball + manifest
-        run: UPD_APP="$MAVERICKS_BUILD_ROOT/golang-updater-cross/go${{ needs.plan.outputs.line }}-cross-updater.app" sh build/package-cross-pkg.sh
+      - name: Package the native and cross .pkgs
+        run: |
+          set -eu
+          sh "$PORT_DIR/build/package.sh" native
+          sh "$PORT_DIR/build/package.sh" cross
+
+      # Review Focus 4: a Linux runner gets this archive from install@v1 `products:`, extracted at the
+      # cross product's prefix, which its go.env names as CC. Prove that shape here, before anyone
+      # consumes it: a cgo and a pure-Go darwin/amd64 program, each 10.9-stamped with clock_gettime
+      # linked in from Recaulk.
+      - name: The Linux archive, extracted where install@v1 puts it, builds 10.9 programs
+        run: |
+          set -eu
+          G="/usr/local/mavergreen/go$GO_LINE-cross"
+          [ ! -e "$G" ] || { echo "::error::$G already exists, so this would not test the archive"; exit 1; }
+          sudo tar -xzf "$GO_OUT/go$GO_LINE-cross-$VER-linux-x86_64.tar.gz" -C /usr/local/mavergreen
+          sh tests/cross-smoke.sh "$G" /usr/local/mavergreen/clang22/bin
 
       - name: The build must not have written into the source tree
         run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh"
@@ -255,9 +287,9 @@ jobs:
           [ -d "$SH" ] || { echo "::error::SHIPYARD_SCRIPTS not set by install@v1"; exit 1; }
           VER="${{ steps.ver.outputs.full }}"; TAG="${{ steps.ver.outputs.tag }}"
           LINE="${{ needs.plan.outputs.line }}"
-          REPO_ROOT="$(pwd)"; export REPO_ROOT
-          . build/versions.sh   # for CROSS_MIN_OS
-          OUT="$MAVERICKS_BUILD_ROOT/golang-native/out"
+          CROSS_MIN_OS="$(sed -n 's/^CROSS_MIN_OS=//p' line.env)"
+          [ -n "$CROSS_MIN_OS" ] || { echo "::error::line.env sets no CROSS_MIN_OS"; exit 1; }
+          OUT="$GO_OUT"
           base="https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG"
           NPKG=$(ls "$OUT"/*native*.pkg | head -1)
           TITLE="Mavericks Go $(printf '%s' "$VER" | cut -d. -f1,2)"
@@ -278,15 +310,30 @@ jobs:
 
       - name: Collect artifacts
         run: |
+          set -eu
           LINE="${{ needs.plan.outputs.line }}"
-          OUT="$MAVERICKS_BUILD_ROOT/golang-native/out"
           mkdir -p dist
-          cp "$OUT"/*.pkg dist/                            # both products' installers (GHA installs via installer -pkg)
-          for f in "go$LINE.xml" "go$LINE-cross.xml"; do [ -f "$OUT/$f" ] && cp "$OUT/$f" dist/ || true; done
+          cp "$GO_OUT"/*.pkg dist/                         # both products' installers
+          for f in "go$LINE.xml" "go$LINE-cross.xml"; do [ -f "$GO_OUT/$f" ] && cp "$GO_OUT/$f" dist/ || true; done
+          # the Linux cross archive, by the exact name install@v1 `products:` asks SHA256SUMS for
+          cp "$GO_OUT/go$LINE-cross-$VER-linux-x86_64.tar.gz" dist/
           # What each variant was built from -- conformance compares them, and a reader can see it.
-          for f in build-info-native.txt build-info-cross.txt; do [ -f "$OUT/$f" ] && cp "$OUT/$f" dist/ || true; done
+          for f in build-info-native.txt build-info-cross.txt build-info-linux-cross.txt; do cp "$GO_OUT/$f" dist/; done
           # dist/RELEASE_NOTES.md was already staged above -- the SAME bytes both appcasts used, so
           # the Release page and Sparkle's update dialog cannot tell two different stories.
+          ls -l dist
+
+      # SHA256SUMS is written at publish, by publish-release.yml, over exactly what release-assets.sh
+      # selects from this artifact. So the archive's place in SHA256SUMS is decided here: release-assets.sh
+      # must select it, by its exact name, once. Ungated, so a pull request proves it too.
+      - name: The Linux archive is a release asset, once, by its exact name
+        run: |
+          set -eu
+          want="go$GO_LINE-cross-$VER-linux-x86_64.tar.gz"
+          assets="$(sh "$SHIPYARD_SCRIPTS/release-assets.sh" dist)"
+          n="$(printf '%s\n' "$assets" | sed 's|.*/||' | grep -cxF "$want" || true)"
+          [ "$n" = 1 ] || { echo "::error::release-assets.sh selects $want $n times, want once; it selected:"; printf '%s\n' "$assets"; exit 1; }
+          echo "ok: $want is selected once, so SHA256SUMS lists it once"
 
       # Conformance: do the artifacts we are about to publish agree with each other and with the
       # family? Every piece is checked somewhere already -- the compat guard reads binaries,
@@ -312,11 +359,135 @@ jobs:
           name: golang-go${{ needs.plan.outputs.line }}
           path: dist/*
 
+  # The native pkg, installed the way a user installs it, on a real Mac OS X 10.9.5 guest
+  # (Mavergreen/mavericks-vm), which has no Command Line Tools. Review Focus 1 first, on the fresh
+  # guest: without clang22 the pkg must refuse, naming clang22, and install nothing. Then Longboat's
+  # sdk109 and clang22 (which requires it), the pkg, and golang-port's on-target suite against the
+  # installed toolchain: the trust tests, the pure-Go and cgo links, no linker warning. A test's 77, its
+  # skip, is a failure here. publish waits for it. A fork's pull request gets no secrets, so cannot boot
+  # the guest, and never publishes: it skips this.
+  on-target:
+    needs: [plan, build]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write   # mavericks-vm's shared image cache
+    env:
+      GO_LINE: ${{ needs.plan.outputs.line }}
+      VER: ${{ needs.plan.outputs.version }}
+      MAVERGREEN_RELEASE: 'yes'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install mavericks-shipyard
+        uses: Mavergreen/shipyard/.github/actions/install@v1
+      - uses: actions/download-artifact@v8
+        with:
+          name: golang-go${{ needs.plan.outputs.line }}
+          path: ${{ runner.temp }}/dist
+      # The guest gets the workspace, not this runner's files: bring in this run's native pkg, clang22's
+      # pkg at the line's pin, Longboat at its CI pin (for sdk109, which clang22 requires), and the pinned
+      # port's on-target suite. The repo's own tests ran in build; here the 10.9 git is a CLT stub, so
+      # port-guards would scan this whole workspace, pkgs and port copy included, rather than the tracked files.
+      - name: Bring the pkgs and the port into the workspace
+        run: |
+          set -eu
+          mkdir -p guest
+          cp "$RUNNER_TEMP"/dist/golang-*-native-mavericks.*.pkg guest/
+          cl="$(tr -d '[:space:]' < components/clang22/version)"
+          sh "$SHIPYARD_SCRIPTS/fetch-release-pkg.sh" clang-22 "$cl" "mavericks-clang-22-native-$cl.pkg" guest/clang22
+          # Longboat is no ingredient of these pkgs, only how the guest gets sdk109: pinned for CI alone.
+          lb="$(tr -d '[:space:]' < components/longboat/version)"
+          sh "$SHIPYARD_SCRIPTS/fetch-release-pkg.sh" longboat "$lb" "longboat-$lb.pkg" guest/longboat
+          port="$(MAVERICKS_BUILD_ROOT="$RUNNER_TEMP/mm-build" sh build/port.sh)"
+          cp -R "$port" guest/port
+          ls -lR guest | head -40
+      - uses: Mavergreen/mavericks-vm@v1
+        with:
+          image-key: ${{ secrets.MAVERICKS_VM_KEY }}
+          copyback: false
+          debug-on-error: true
+          sync-time: true
+          envs: 'GO_LINE VER'
+          run: |
+            set -eu
+            sw_vers
+            sudo -n true || { echo "the guest's user cannot sudo without a password, and installer needs root"; exit 1; }
+            npkg="$(ls guest/golang-*-native-mavericks.*.pkg)"
+            # Review Focus 1: no clang22 yet, so the pkg's preinstall must refuse and name it. Its message
+            # goes to /var/log/install.log, so read the lines this attempt added as well as installer's own.
+            mark="$(sudo sh -c 'if [ -f /var/log/install.log ]; then wc -l < /var/log/install.log; else echo 0; fi' | tr -d ' ')"
+            if out="$(sudo installer -pkg "$npkg" -target / 2>&1)"; then
+              printf '%s\n' "$out"; echo "FAIL: the native pkg installed on a guest without clang22"; exit 1
+            fi
+            log="$(sudo tail -n "+$((mark + 1))" /var/log/install.log 2>/dev/null || true)"
+            printf '%s\n%s\n' "$out" "$log" | grep -i 'clang22' \
+              || { printf '%s\n' "$out" "$log" | tail -40; echo "FAIL: the refusal does not name clang22"; exit 1; }
+            [ ! -e "/usr/local/mavergreen/go$GO_LINE/bin/go" ] || { echo "FAIL: the refused install left go$GO_LINE behind"; exit 1; }
+            echo "ok   the native pkg refuses without clang22, naming it"
+            sudo installer -pkg guest/longboat/longboat-*.pkg -target /
+            sudo /usr/local/mavergreen/longboat/bin/longboat sdk install 10.9
+            sudo installer -pkg guest/clang22/mavericks-clang-22-native-*.pkg -target /
+            sudo installer -pkg "$npkg" -target /
+            got="$(sed -n '/<key>version<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' "/usr/local/mavergreen/go$GO_LINE/mavergreen.plist" | sed -n 1p)"
+            [ "$got" = "$VER" ] || { echo "FAIL: installed go$GO_LINE manifest says '$got', this run built $VER"; exit 1; }
+            must() { status=0; "$@" || status=$?; [ "$status" -eq 0 ] || { echo "$* exited $status (77, a skip, is a failure here)"; exit 1; }; }
+            must env GO_LINE="$GO_LINE" sh guest/port/tests/on-target/run.sh
+
+  # The cross pkg's arm64 toolchain, installed on Apple Silicon, where its users run it: go runs natively
+  # there (no Rosetta), and through clang22-cross it links cgo and pure-Go darwin/amd64 programs stamped
+  # 10.9 with clock_gettime from Recaulk (Review Focus 3). Inspected, never run: an x86_64 program runs
+  # on 10.9, which on-target covers. One short job; publish waits for it.
+  modern-smoke:
+    needs: [plan, build]
+    runs-on: macos-26
+    permissions:
+      contents: read
+    env:
+      GO_LINE: ${{ needs.plan.outputs.line }}
+      VER: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Read the clang22 pin
+        id: pins
+        run: echo "clang22=$(tr -d '[:space:]' < components/clang22/version)" >> "$GITHUB_OUTPUT"
+      - name: Install mavericks-shipyard and clang22-cross
+        # clang22-cross brings what it requires, sdk109 (by Longboat); the cross pkg needs both.
+        uses: Mavergreen/shipyard/.github/actions/install@v1
+        with:
+          products: clang22-cross@${{ steps.pins.outputs.clang22 }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: golang-go${{ needs.plan.outputs.line }}
+          path: dist
+      - name: Install this run's cross pkg
+        run: sudo installer -pkg "$(ls dist/golang-*-cross-mavericks.*.pkg)" -target /
+      - name: go runs natively; 10.9 programs link through the cross toolchain
+        run: |
+          set -eu
+          got="$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)"
+          [ "$got" = 1 ] || { echo "::error::hw.optional.arm64 is $got: this runner is not Apple Silicon"; exit 1; }
+          G="/usr/local/mavergreen/go$GO_LINE-cross"
+          CL=/usr/local/mavergreen/clang22-cross/bin
+          m="$(sed -n '/<key>version<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' "$G/mavergreen.plist" | sed -n 1p)"
+          [ "$m" = "$VER" ] || { echo "::error::installed go$GO_LINE-cross manifest says '$m', this run built $VER"; exit 1; }
+          a="$("$CL/llvm-lipo" -archs "$G/bin/go")"
+          [ "$a" = arm64 ] || { echo "::error::$G/bin/go is '$a', want arm64 only"; exit 1; }
+          v="$("$G/bin/go" version)"
+          echo "$v"
+          case "$v" in *" darwin/arm64") ;; *) echo "::error::go version should end darwin/arm64: $v"; exit 1 ;; esac
+          sh tests/cross-smoke.sh "$G" "$CL"
+
   # Before anything is published: no log of this run, and no file about to be released, carries a
   # piece of the signing key. shipyard's publish-release.yml looks for this job's record on any signed
   # release; it cannot run the scan itself (reading job logs needs actions: read). One artifact holds
-  # both signed products (native + cross .pkg and both feeds), so one scan covers everything
-  # publish attaches.
+  # both signed products (native + cross .pkg and both feeds) and the Linux archive, so one scan covers
+  # everything publish attaches.
   scan:
     needs: [plan, build]
     if: always() && (needs.plan.outputs.any_publish == 'true')   # a build that fails after signing left logs too; scan them
@@ -330,7 +501,7 @@ jobs:
       SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
 
   publish:
-    needs: [plan, build, scan]
+    needs: [plan, build, scan, on-target, modern-smoke]
     if: needs.plan.outputs.any_publish == 'true'
     permissions:
       contents: write
