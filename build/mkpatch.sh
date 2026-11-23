@@ -4,7 +4,7 @@
 #   usage: sh build/mkpatch.sh <patch-file> [src/relative/path ...]
 # With no paths, uses the patch's own '+++' paths. Keeps the description (everything before the
 # first '--- ' line), so for a NEW patch write the description into the file first. A path absent
-# from go.pristine is emitted as a new file. apply-patches.sh's @SSLDIR@ substitution is reversed,
+# from go.pristine is emitted as a new file. golang-port's @SSLDIR@ substitution is reversed,
 # so the patch stays neutral about who packages the toolchain.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"

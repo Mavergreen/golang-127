@@ -5,7 +5,8 @@ Cross-builds a **patched Go 1.27.1 toolchain that installs and runs on Mac OS X 
 auto-updater — entirely on modern hardware. No 10.9 build runner anywhere.
 
 **Status:** The Go 1.27 line, from its sibling `golang-126`, with trust semantics kept
-unchanged (patches 0005–0010 and 0013–0018, tracked in `PORT.md`). Built and proven end to
+unchanged (hook patches 0005, 0006, 0010, 0013, 0016 and 0018, tracked in `PORT.md`, plus golang-port's
+overlay). Built and proven end to
 end on real 10.9.5 hardware (`ultimate-hat`) on 2026-09-26, installed side by side with
 golang-126: separate trees, updaters and feeds, the selection untouched, the trust
 acceptance and the pure-Go link gate all passing, and a clean uninstall. The first release,
@@ -15,13 +16,19 @@ which install `/usr/local/mavergreen/go127` and `/usr/local/mavergreen/go127-cro
 
 ## Build / release
 
-- `sh build/build-native.sh` — **Rosetta-free**: fetch go1.27.1 → apply `patches/` → fetch
-  the prebuilt Recaulk archive → native arm64 `make.bash` builder → cross `go install cmd` for
-  amd64 (via a build-time `-arch x86_64`/min-10.9 CC wrapper) → assemble amd64 GOROOT (local `WORK`).
-  No amd64 code runs in the build path; Rosetta is only an optional post-build self-test.
-- `sh build/package-pkg.sh` — stage the updater + LaunchAgent, wrap with the 10.9.5 floor →
-  `.pkg` + tarball + `manifest/`.
-- `MAVERICKS_HOST=ultimate-hat sh tests/smoke-mavericks.sh [installer]` — on-box smoke.
+- **The build chain is golang-port's** (`Mavergreen/golang-port`, pinned in
+  `components/golang-port/version`). This repo holds only the line's inputs: `UPSTREAM_VERSION`,
+  `components/{recaulk,clang22,golang-port}/version`, `line.env` (`CROSS_MIN_OS`, `CA_SHA256`), the hook
+  `patches/`, `vendor/cacert.pem`, `updater/` and the release notes. `build/port.sh` resolves the port:
+  `GOLANG_PORT_DIR` on a dev box (announced `UNPINNED`; refused when `MAVERGREEN_RELEASE=yes`), else the
+  pinned release tarball verified against its `SHA256SUMS`. Every step is
+  `LINE_ROOT=$PWD sh "$PORT_DIR/build/<step>.sh"`; the port's `PORT.md` "Build chain" is the authority for
+  the build rules.
+- `sh build/build.sh [native] [cross] [linux-cross] [updaters] [packages]` — the whole local build, in order,
+  through the port (default: native and cross, plus linux-cross on Linux). Rosetta-free, the same bytes on
+  Linux and on the 10.9 box.
+- `GO_LINE=<line> sh tests/on-target/run.sh` (from the port) — the on-target suite, in the 10.9 guest against
+  the installed pkg.
 - `sh tests/trust/smoke-trust.sh` — TLS-trust acceptance (pinned LE endpoints).
 - `.github/workflows/release.yml` — CI build → EdDSA-sign → appcast → Release. Three triggers: push
   to `main` (auto-cuts `<upstream>-mavericks.1` if unreleased), a `*-mavericks.*` tag, or
@@ -40,8 +47,8 @@ which install `/usr/local/mavergreen/go127` and `/usr/local/mavergreen/go127-cro
     minor) is what keeps this repo on 1.27.x so it can never drift onto the next line by itself. A new
     line gets noticed the ordinary way: a consumer's routine Renovate bump needing the next Go minor
     fails its build.
-  - The gates are what keep a line safe to ship, not fuzzy patch application: patches 0005–0010 and
-    0013–0018 are the keychain-union trust model in `src/crypto/x509`, exactly where Go churns between
+  - The gates are what keep a line safe to ship, not fuzzy patch application: the hook patches and
+    golang-port's overlay are the keychain-union trust model in `src/crypto/x509`, exactly where Go churns between
     minors. A fuzzy apply (`patch -p0 -F 3`) can succeed and be wrong — that is what `tests/trust/`,
     `tests/port-md-test.sh` and the compat guard are for. **Never relax those to make a build green.**
     `PORT.md` is the authority for why each carried patch exists; a spec disagreeing with it loses.
@@ -63,35 +70,28 @@ which install `/usr/local/mavergreen/go127` and `/usr/local/mavergreen/go127-cro
   `gh release create` in `release.yml` (no PAT — `gh` mints the tag itself). Don't also push a
   manual tag for that release; that re-triggers CI and rebuilds/republishes the same version.
 
-## Transitional: the trust overlay lives in two repos
-
-The keychain-union trust model (patches 0005–0010 and 0013–0018) is not yet extracted into its own
-shared ingredient repo. **Exit condition:** the overlay patches (0007–0009, 0014, 0015, 0017) exist
-only in golang-port, and neither line repo carries them. Until then the two line repos carry
-identical copies; a change to one must be made to the other in the same week. See the spec's
-Sequencing step 3.
-
 ## Non-obvious invariants (details in `memory/`)
 
-- **Repo is on NFS — build on local disk** (`WORK` defaults to `~/.cache`). [[mavericks-golang-nfs-build-location]]
+- **Repo is on NFS — build on local disk** (`WORK` defaults under `$MAVERICKS_BUILD_ROOT`, `${TMPDIR:-/tmp}/mm-build`). [[mavericks-golang-nfs-build-location]]
 - **Every darwin/amd64 link goes through the CC wrapper, pure Go included.** The toolchains are built
   with `GO_EXTLINK_ENABLED=darwin/amd64` baked in (patches 0011/0012): Go internal-links cgo-free
   binaries otherwise, and those die on 10.9 (`_clock_gettime`). Other GOOS targets keep the automatic
-  choice. `tests/pure-go-link.sh` is the gate (CI: cross toolchain; box: `smoke-mavericks.sh`).
+  choice. golang-port's on-target suite (`tests/on-target/run.sh`) is the gate.
 - **The amd64 toolchain is cross-linked `-linkmode=external`** so the toolchain's own binaries (go/gofmt/tools)
   route through the min-10.9 CC wrapper — Go 1.27 internal-links pure-Go darwin binaries to a 13.0
   floor otherwise (golang-126's Go internal-linked to a 12.0 floor), which the CC wrapper avoids for
   darwin/amd64. `link-recipe.sh` (the old `-extldflags`/`GO_EXTLINK_ENABLED` plumbing) is gone; the CC
   wrappers inject the shim directly. [[mavericks-golang-downstream-linking]]
-- **The cross toolchain needs macOS 13+.** `CROSS_MIN_OS` in `build/versions.sh` sets the cross
+- **The cross toolchain needs macOS 13+.** `CROSS_MIN_OS` in `line.env` sets the cross
   archive's install floor and the appcast `--min-os`; its own binaries carry Go's own 13.0 stamp
   (Go 1.27's linker defaults `LC_BUILD_VERSION` to macOS 13.0), declared as `sdk-pin`/`floor`
   deviations in `INGREDIENTS.md`. The native toolchain's own floor is unchanged: every darwin/amd64
   link still goes through the min-10.9 CC wrapper, so native output stays 10.9.
 - **The trust model:** crypto/x509's system roots on darwin are the keychain union — all three trust
   domains read with Go 1.17's precedence- and policy-aware code, ∪ every existing CA bundle, minus
-  distrust — served through a one-line hook at the top of the shared `loadSystemRoots` (patches
-  0005–0010, 0013–0018; `PORT.md` is the authority for each one, enforced by `tests/port-md-test.sh`).
+  distrust — served through a one-line hook at the top of the shared `loadSystemRoots` (hook patches
+  here, `PORT.md` the authority for each one, enforced by `tests/port-md-test.sh`; the overlay is
+  golang-port's, its `PORT.md` the authority for each overlay file).
   This is kept **unchanged from golang-126 on purpose**, and differs from upstream Go 1.27:
   `SSL_CERT_FILE`/`SSL_CERT_DIR` shape the union's bundle files rather than replacing it, and
   `GODEBUG=x509sslcertoverrideplatform` has no effect on darwin here. `GODEBUG=x509usefallbackroots=0`
@@ -100,10 +100,12 @@ Sequencing step 3.
   untested; the prompt guards writes). Acceptance: `tests/trust/acceptance-onbox.sh` + the
   semi-manual steps in `smoke-trust.sh`.
 - **Sparkle updater + EdDSA keys** (private key = `SPARKLE_PRIVATE_KEY` secret). [[mavericks-golang-sparkle-updater]]
-- **Renovate's Go patch auto-release trusts go.dev's feed-verified sha256** (`build/fetch-go.sh`,
-  `build/go-src-sha256.sh`), not a pinned checksum, and requires no PAT/App token — deliberately,
+- **Renovate's Go patch auto-release trusts go.dev's feed-verified sha256** (golang-port's
+  `build/fetch-go.sh` and `build/go-src-sha256.sh`), not a pinned checksum, and requires no PAT/App token — deliberately,
   so don't add one.
-- Apple `/usr/bin/clang` required for cgo/ObjC. Reuse `../mavergreen-shipyard`; don't duplicate.
+- **clang22 compiles and links everything, on every host** (`/usr/local/mavergreen/clang22`, pinned in
+  `components/clang22/version`); no Apple `/usr/bin/clang` or Command Line Tools anywhere, and both pkgs
+  require clang22 (`go127-cross` requires clang22-cross). Reuse `../mavergreen-shipyard`; don't duplicate.
 
 ## Design docs
 

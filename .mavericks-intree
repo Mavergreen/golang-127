@@ -1,1 +1,1 @@
-VERSION    # release.yml stamps the resolved version here; build/versions.sh reads it back downstream
+VERSION    # release.yml stamps the resolved version here; golang-port's build/env.sh reads it back downstream
