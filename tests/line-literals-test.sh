@@ -8,7 +8,7 @@
 # - tests/line-literals-test.sh (this file): once tracked, its own allowlist regexes below
 #   necessarily spell out old-line tokens (e.g. golang-126, 1.26) to match against -- excluding
 #   its own source is the guard declining to flag itself, not silencing a class of hits elsewhere.
-# - INGREDIENTS.md:25,28,29,32,36 (golang-126, 1.26): the "Why the bootstrap Go is capped" section
+# - INGREDIENTS.md:26,29,30,33,37 (golang-126, 1.26): the "Why the bootstrap Go is capped" section
 #   tells golang-126's own real incident (a mergeable Renovate PR that would have built 1.26 with a
 #   1.27 compiler), marked "(golang-126, 2026-09)" -- the numbers are the story, not this repo's
 #   identity, so they are not rewritten.
@@ -33,7 +33,7 @@ hits="$(git ls-files -z \
   | grep -vE '^(README\.md|CLAUDE\.md):[0-9]+:golang-126$' \
   | grep -vE '^(\.github/renovate\.json|INGREDIENTS\.md):[0-9]+:1\.28$' \
   | grep -vE ':[0-9]+:1\.24$' \
-  | grep -vE '^INGREDIENTS\.md:(25|28|29|32|36):(golang-126|1\.26)$' \
+  | grep -vE '^INGREDIENTS\.md:(26|29|30|33|37):(golang-126|1\.26)$' \
   || true)"
 [ -z "$hits" ] || { printf 'FAIL: these name a Go line other than %s -- derive them from UPSTREAM_VERSION, or allowlist them here with the reason:\n%s\n' "$U" "$hits"; exit 1; }
 echo "PASS: line-literals"
