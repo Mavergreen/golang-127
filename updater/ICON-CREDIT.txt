@@ -1,4 +1,0 @@
-Updater icon: "superhero standing" gopher from egonelbre/gophers
-(https://github.com/egonelbre/gophers), released under CC0 1.0 (public domain).
-The Go Gopher was designed by Renée French. No attribution is required (CC0);
-noted here for provenance. Built into mavericks-go-updater.icns via iconutil.
