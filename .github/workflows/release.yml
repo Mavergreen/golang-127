@@ -542,3 +542,13 @@ jobs:
     with:
       version: ${{ needs.plan.outputs.version }}
       artifact: golang-go${{ needs.plan.outputs.line }}
+
+  required:
+    name: required (release)
+    if: always()
+    needs: [plan, build, on-target, modern-smoke, scan, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Mavergreen/shipyard/.github/actions/required-gate@v1
+        with:
+          needs: ${{ toJSON(needs) }}
