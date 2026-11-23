@@ -509,7 +509,7 @@ jobs:
           CL=/usr/local/mavergreen/clang22-cross/bin
           m="$(sed -n '/<key>version<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' "$G/mavergreen.plist" | sed -n 1p)"
           [ "$m" = "$VER" ] || { echo "::error::installed go$GO_LINE-cross manifest says '$m', this run built $VER"; exit 1; }
-          a="$("$CL/llvm-lipo" -archs "$G/bin/go")"
+          a="$("$CL/llvm-lipo" -archs "$G/bin/go" | tr -d "[:space:]")"   # llvm-lipo ends the list with a space
           [ "$a" = arm64 ] || { echo "::error::$G/bin/go is '$a', want arm64 only"; exit 1; }
           v="$("$G/bin/go" version)"
           echo "$v"
