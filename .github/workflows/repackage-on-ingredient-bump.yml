@@ -1,6 +1,6 @@
 name: repackage-on-ingredient-bump
 
-# A bumped build ingredient (the Recaulk pin, the CA bundle) dispatches a -mavericks.(N+1) repackage
+# A bumped build ingredient (the Recaulk, clang22 or golang-port pin, the CA bundle) dispatches a -mavericks.(N+1) repackage
 # through the shared reusable workflow; release.yml's workflow_dispatch local_release path cuts and
 # publishes it. The Go version (own upstream, UPSTREAM_VERSION) is release.yml's N=1 path on push to main.
 
@@ -9,7 +9,9 @@ on:
     branches: [main]
     paths:
       - components/recaulk/version
-      - build/versions.sh    # the CA bundle's hash pin
+      - components/clang22/version
+      - components/golang-port/version
+      - line.env             # the CA bundle's hash pin and the cross floor
       - vendor/cacert.pem    # the vendored CA bundle itself (refreshed by hand; see INGREDIENTS.md)
 
 jobs:

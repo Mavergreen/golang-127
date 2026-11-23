@@ -10,8 +10,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 export MAVERICKS_WORK="${MAVERICKS_WORK:-$HOME/.cache/mavericks-golang/work}/trusttest"
 # versions.sh defaults REPO_ROOT from dirname($0), assuming a one-level-deep
 # sourcer (build/*.sh). `.` (source) never rebinds $0, and this script lives
-# two levels down (test/trust/), so that default would land in test/, not the
-# repo root. Set it explicitly from $here instead.
+# two levels down (tests/trust/), so that default would land in tests/, not the
+# repo root. Set it explicitly from $here instead. The port (the overlay and the
+# build chain) is build/port.sh's: GOLANG_PORT_DIR, or the pinned release.
 export REPO_ROOT="$(cd "$here/../.." && pwd)"
 . "$here/../../build/versions.sh"
 : "${GOROOT_BOOTSTRAP:=$( (command -v go >/dev/null 2>&1 && go env GOROOT) || true )}"
@@ -19,8 +20,8 @@ export REPO_ROOT="$(cd "$here/../.." && pwd)"
   || { echo "FATAL: set GOROOT_BOOTSTRAP to a Go >=1.24 GOROOT" >&2; exit 1; }
 
 rm -rf "$WORK/go"
-sh "$here/../../build/fetch-go.sh"
-sh "$here/../../build/apply-patches.sh"
+sh "$PORT_DIR/build/fetch-go.sh"
+sh "$PORT_DIR/build/apply-patches.sh"
 ( cd "$WORK/go/src" && GOROOT_BOOTSTRAP="$GOROOT_BOOTSTRAP" ./make.bash ) 1>&2
 out=$(GOROOT="$WORK/go" "$WORK/go/bin/go" test crypto/x509 -run 'KeychainUnion|Fallback|TestEnvVars|ColonSeparatedDirs|SSLCertEnvOverride|TestIssue51759|TestHybridPool' -count=1 -v 2>&1)
 printf '%s\n' "$out"
@@ -65,6 +66,6 @@ grep -q 'keychainUnionPlatformRoots(); handled' "$WORK/go/src/crypto/x509/root.g
   || { echo "FATAL: root.go's loadSystemRoots no longer hands darwin to the keychain union (patch 0016)" >&2; exit 1; }
 for os in linux windows; do
   GOROOT="$WORK/go" GOOS=$os GOARCH=amd64 "$WORK/go/bin/go" build crypto/x509 \
-    || { echo "FATAL: crypto/x509 does not build for GOOS=$os -- the !darwin keychainUnionPlatformRoots stub (patch 0017) is missing" >&2; exit 1; }
+    || { echo "FATAL: crypto/x509 does not build for GOOS=$os -- the !darwin keychainUnionPlatformRoots stub (golang-port's overlay root_keychainunion_other.go) is missing" >&2; exit 1; }
 done
 echo "unit-trust OK ($passed trust tests passed)"

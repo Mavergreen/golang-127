@@ -54,28 +54,32 @@ inside a port.
 
 ## Hook ↔ overlay interface
 
-Overlay = files this port adds whole (line-independent). Hooks = edits to upstream files (per-minor;
-Go churns them). A renamed function breaks the hook at compile time, which goes red on the line.
+Overlay = files added whole (line-independent): crypto/x509's `root_keychainunion*.go` files and
+their testdata. **The overlay comes from golang-port** (pinned in `components/golang-port/version`;
+its `PORT.md` is the authority for each overlay file, and its build chain applies the overlay after
+this line's hook patches). Hooks = edits to upstream files (per-minor; Go churns them), carried here
+in `patches/`. A renamed function breaks the hook at compile time, which goes red on the line.
 
 | Hook patch (upstream file) | Uses from the overlay |
 |---|---|
 | 0010 `verify.go` | `keychainUnionDistrusted`, `keychainUnionFilterDistrusted` |
 | 0013 `root_darwin.go` (`systemVerify`) | `keychainUnionLegacySecTrust`, `keychainUnionLegacyEvaluate` |
-| 0016 `root.go` (`loadSystemRoots`) | `keychainUnionPlatformRoots` (darwin: 0008; `!darwin`: 0017) |
+| 0016 `root.go` (`loadSystemRoots`) | `keychainUnionPlatformRoots` (darwin: `root_keychainunion_darwin.go`; `!darwin`: `root_keychainunion_other.go`) |
 | 0018 `root_test.go`, `verify_test.go`, `hybrid_pool_test.go` | — (points readers at `TestKeychainUnion*`) |
 
-| Overlay patch (new file) | Uses from hooks |
+| Overlay file (golang-port) | Uses from hooks |
 |---|---|
-| 0008 `root_keychainunion_darwin.go` | 0005/0006's `internal/macos` SecTrustSettings wrappers |
+| `root_keychainunion_darwin.go` | 0005/0006's `internal/macos` SecTrustSettings wrappers |
 
 ### Upstream internals the overlay relies on
 
 These are what break the overlay across Go minors — none of them are part of the hook/overlay
-interface above, but the overlay reaches into upstream's own unexported state to do its job:
+interface above, but the overlay reaches into upstream's own unexported state to do its job
+(golang-port's `PORT.md` keeps the same list):
 
-- 0008 uses `x509usefallbackroots` and `CertPool.systemPool`.
-- The tests (0014) use `once`, `systemRootsMu`, `systemRoots`, `systemRootsErr`, `fallbacksSet` and
-  `useFallbackRoots`.
+- `root_keychainunion_darwin.go` uses `x509usefallbackroots` and `CertPool.systemPool`.
+- The darwin tests (`root_keychainunion_darwin_test.go`) use `once`, `systemRootsMu`, `systemRoots`,
+  `systemRootsErr`, `fallbacksSet` and `useFallbackRoots`.
 - 0016 relies on `loadSystemRoots` living in root.go.
 
 ## Carried changes
@@ -107,22 +111,6 @@ way Go 1.16/1.17 did (invariant 1); Apple's verifier below 10.15 needs the older
 ### 0006-macos-sectrustsettings-trampolines.patch
 Hook. The assembly trampolines for 0005's wrappers. *Why/Reconsider:* as 0005.
 
-### 0007-root-keychainunion.patch
-Overlay (portable). `buildKeychainUnionPool`, the bundle parsing and `keychainUnionResolveBundlePaths`
-(invariants 1, 3), and the distrust set. *Why:* invariants 1–3. *Reconsider:* never while
-invariants 1–3 hold.
-
-### 0008-root-keychainunion-darwin.patch
-Overlay (darwin). Keychain enumeration (Go 1.16/1.17, with the user→admin fall-through fix),
-`keychainUnionLoadSystemRoots`, `keychainUnionPlatformRoots`, Apple's-verifier plumbing for
-< 10.15, and the default bundle list. *Why:* invariants 1–7. *Reconsider:* never while
-invariants 1–7 hold.
-
-### 0009-root-keychainunion-test.patch
-Overlay (portable tests). Pins invariants 1–3 and the anchor rules (TrustRoot only self-signed,
-TrustAsRoot only non-self-signed, Unspecified/Invalid anchor nothing), including
-`TestKeychainUnionAllBundlesContribute`. *Reconsider:* never while invariants 1–3 hold.
-
 ### 0010-verify-distrust-veto.patch
 Hook. Drops any built chain containing a keychain-distrusted certificate. *Why:* invariant 2 —
 anchor exclusion alone cannot reject a distrusted intermediate that also chains to a trusted root.
@@ -135,8 +123,8 @@ Hook. Lets `GO_EXTLINK_ENABLED=darwin/amd64` be baked in at make.bash time. *Why
 Hook. `GO_EXTLINK_ENABLED=darwin/amd64`: external-link every darwin/amd64 binary, keep the automatic
 choice elsewhere. *Why:* Go internal-links cgo-free binaries, which never run the CC wrapper, so on
 10.9 they lack the legacy shim, carry a modern minimum-OS stamp (12.0 in 1.26, 13.0 in 1.27) and die
-with `_clock_gettime` unresolved. `tests/pure-go-link.sh` is the gate. *Reconsider:* never while
-10.9 is a target.
+with `_clock_gettime` unresolved. golang-port's on-target suite (`tests/on-target/run.sh`, its
+pure-Go link check) is the gate. *Reconsider:* never while 10.9 is a target.
 
 ### 0013-root-darwin-legacy-sectrust.patch
 Hook. Makes upstream's `systemVerify` work on 10.9: the SSL policy is passed as a single
@@ -145,24 +133,11 @@ Hook. Makes upstream's `systemVerify` work on 10.9: the SSL policy is passed as 
 `SecTrustGetCertificateAtIndex`. *Why:* invariant 5 — Apple's verifier must work on every macOS.
 *Reconsider:* never while invariant 5 holds.
 
-### 0014-root-keychainunion-darwin-test.patch
-Overlay (darwin tests). Pins invariants 3–6 on darwin: the loadSystemRoots table, `SetFallbackRoots`
-behaviour, Apple's verifier on legacy SecTrust, and the ca-certs path (invariant 7). *Reconsider:*
-never while invariants 3–6 hold.
-
-### 0015-root-keychainunion-testdata.patch
-Overlay (testdata). The ISRG Root X1 chain the darwin tests verify against. *Reconsider:* as 0014.
-
 ### 0016-root-loadsystemroots-keychainunion-hook.patch
 Hook. One statement at the top of `root.go`'s `loadSystemRoots` hands darwin to
 `keychainUnionPlatformRoots`. *Why:* Go 1.27 moved darwin's `loadSystemRoots` there from
 `root_darwin.go`. Keep it one statement so it survives future moves. *Reconsider:* only if upstream
 moves `loadSystemRoots` again.
-
-### 0017-root-keychainunion-other.patch
-Overlay (`!darwin`). `keychainUnionPlatformRoots` returns `handled=false`, so 0016 is inert off
-darwin. *Why:* without it `crypto/x509` does not compile for other GOOS (Review: cross-compiling
-from a Mac to linux must keep working). *Reconsider:* never while 0016 exists.
 
 ### 0018-root-test-darwin-keychainunion.patch
 Hook (tests). Upstream tests that assert upstream's darwin semantics skip on darwin: `TestEnvVars`
@@ -185,6 +160,8 @@ on that warning. *Reconsider:* when Go's own default drops to 10.9 or below (nev
 - The CA bundle itself (`vendor/cacert.pem`, curl.se's Mozilla export) is an ingredient, not a
   change — see INGREDIENTS.md.
 - The 10.9 back-fill archive is an ingredient (`Mavergreen/recaulk`, pinned in `components/recaulk/version`).
+- The trust overlay and the build chain are golang-port's (`Mavergreen/golang-port`, pinned in
+  `components/golang-port/version`); its `PORT.md` explains each overlay file and each build rule.
 
 ## Last verified
 
