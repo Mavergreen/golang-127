@@ -343,6 +343,8 @@ jobs:
           for f in "go$LINE.xml" "go$LINE-cross.xml"; do [ -f "$GO_OUT/$f" ] && cp "$GO_OUT/$f" dist/ || true; done
           # the Linux cross archive, by the exact name install@v1 `products:` asks SHA256SUMS for
           cp "$GO_OUT/go$LINE-cross-$VER-linux-x86_64.tar.gz" dist/
+          # the standalone Mac archives package.sh writes beside the pkgs: conformance judges each one
+          cp "$GO_OUT/go$LINE-$VER-macos-x86_64.tar.gz" "$GO_OUT/go$LINE-cross-$VER-macos-arm64.tar.gz" dist/
           # What each variant was built from -- conformance compares them, and a reader can see it.
           for f in build-info-native.txt build-info-cross.txt build-info-linux-cross.txt; do cp "$GO_OUT/$f" dist/; done
           # dist/RELEASE_NOTES.md was already staged above -- the SAME bytes both appcasts used, so
@@ -350,16 +352,18 @@ jobs:
           ls -l dist
 
       # SHA256SUMS is written at publish, by publish-release.yml, over exactly what release-assets.sh
-      # selects from this artifact. So the archive's place in SHA256SUMS is decided here: release-assets.sh
+      # selects from this artifact. So each archive's place in SHA256SUMS is decided here: release-assets.sh
       # must select it, by its exact name, once. Ungated, so a pull request proves it too.
-      - name: The Linux archive is a release asset, once, by its exact name
+      - name: Each archive is a release asset, once, by its exact name
         run: |
           set -eu
-          want="go$GO_LINE-cross-$VER-linux-x86_64.tar.gz"
           assets="$(sh "$SHIPYARD_SCRIPTS/release-assets.sh" dist)"
-          n="$(printf '%s\n' "$assets" | sed 's|.*/||' | grep -cxF "$want" || true)"
-          [ "$n" = 1 ] || { echo "::error::release-assets.sh selects $want $n times, want once; it selected:"; printf '%s\n' "$assets"; exit 1; }
-          echo "ok: $want is selected once, so SHA256SUMS lists it once"
+          for want in "go$GO_LINE-cross-$VER-linux-x86_64.tar.gz" \
+                      "go$GO_LINE-$VER-macos-x86_64.tar.gz" "go$GO_LINE-cross-$VER-macos-arm64.tar.gz"; do
+            n="$(printf '%s\n' "$assets" | sed 's|.*/||' | grep -cxF "$want" || true)"
+            [ "$n" = 1 ] || { echo "::error::release-assets.sh selects $want $n times, want once; it selected:"; printf '%s\n' "$assets"; exit 1; }
+            echo "ok: $want is selected once, so SHA256SUMS lists it once"
+          done
 
       # Conformance: do the artifacts we are about to publish agree with each other and with the
       # family? Every piece is checked somewhere already -- the compat guard reads binaries,
@@ -390,8 +394,9 @@ jobs:
   # (Mavergreen/mavericks-vm), which has no Command Line Tools. Review Focus 1 first, on the fresh
   # guest: without clang22 the pkg must refuse, naming clang22, and install nothing. Then Longboat's
   # sdk109 and clang22 (which requires it), the pkg, and golang-port's on-target suite against the
-  # installed toolchain: the trust tests, the pure-Go and cgo links, no linker warning. A test's 77, its
-  # skip, is a failure here. publish waits for it. A fork's pull request gets no secrets, so cannot boot
+  # installed toolchain: the trust tests, the pure-Go and cgo links, no linker warning. Then the port's
+  # standalone smoke unpacks the native standalone archive under a path with a space and builds and runs
+  # a pure-Go and a cgo program through it. A test's 77, its skip, is a failure here. publish waits for it. A fork's pull request gets no secrets, so cannot boot
   # the guest, and never publishes: it skips this.
   on-target:
     needs: [plan, build]
@@ -424,6 +429,7 @@ jobs:
           set -eu
           mkdir -p guest
           cp "$RUNNER_TEMP"/dist/golang-*-native-mavericks.*.pkg guest/
+          cp "$RUNNER_TEMP/dist/go$GO_LINE-$VER-macos-x86_64.tar.gz" guest/
           cl="$(tr -d '[:space:]' < components/clang22/version)"
           sh "$SHIPYARD_SCRIPTS/fetch-release-pkg.sh" clang-22 "$cl" "mavericks-clang-22-native-$cl.pkg" guest/clang22
           # Longboat is no ingredient of these pkgs, only how the guest gets sdk109: pinned for CI alone.
@@ -448,9 +454,11 @@ jobs:
             # stage_product.sh writes for a missing require ("<pkg name> needs <short> installed first: <url>
             # -- install it, then run this installer again."; the pkg name is golang-port's package.sh's).
             # The preinstall's stderr goes to /var/log/install.log, so read the lines this attempt added
-            # as well as installer's own.
+            # as well as installer's own. The pkg also requires sdk109 (its wrapper names it), missing too,
+            # and the preinstall names every missing require, so both sentences must be there.
             gominor="$(printf '%s' "$VER" | cut -d. -f1,2)"
             want="Go $gominor for Mavericks needs clang22 installed first: https://github.com/Mavergreen/clang-22/releases/latest -- install it, then run this installer again."
+            want_sdk="Go $gominor for Mavericks needs sdk109 installed first: https://github.com/Mavergreen/longboat/releases/latest -- install it, then run this installer again."
             mark="$(sudo sh -c 'if [ -f /var/log/install.log ]; then wc -l < /var/log/install.log; else echo 0; fi' | tr -d ' ')"
             if out="$(sudo installer -pkg "$npkg" -target / 2>&1)"; then
               printf '%s\n' "$out"; echo "FAIL: the native pkg installed on a guest without clang22"; exit 1
@@ -458,6 +466,8 @@ jobs:
             log="$(sudo tail -n "+$((mark + 1))" /var/log/install.log 2>/dev/null || true)"
             printf '%s\n%s\n' "$out" "$log" | grep -F "$want" \
               || { printf '%s\n' "$out" "$log" | tail -40; echo "FAIL: the refusal is not: $want"; exit 1; }
+            printf '%s\n%s\n' "$out" "$log" | grep -F "$want_sdk" \
+              || { printf '%s\n' "$out" "$log" | tail -40; echo "FAIL: the refusal does not also say: $want_sdk"; exit 1; }
             [ ! -e "/usr/local/mavergreen/go$GO_LINE/bin/go" ] || { echo "FAIL: the refused install left go$GO_LINE behind"; exit 1; }
             echo "ok   the native pkg refuses without clang22: $want"
             sudo installer -pkg guest/longboat/longboat-*.pkg -target /
@@ -468,11 +478,14 @@ jobs:
             [ "$got" = "$VER" ] || { echo "FAIL: installed go$GO_LINE manifest says '$got', this run built $VER"; exit 1; }
             must() { status=0; "$@" || status=$?; [ "$status" -eq 0 ] || { echo "$* exited $status (77, a skip, is a failure here)"; exit 1; }; }
             must env GO_LINE="$GO_LINE" sh guest/port/tests/on-target/run.sh
+            # The standalone archive needs no pkg: its own bin/ goes first on PATH and GOROOT is its own.
+            must sh guest/port/tests/standalone-smoke.sh "guest/go$GO_LINE-$VER-macos-x86_64.tar.gz"
 
   # The cross pkg's arm64 toolchain, installed on Apple Silicon, where its users run it: go runs natively
   # there (no Rosetta), and through clang22-cross it links cgo and pure-Go darwin/amd64 programs stamped
   # 10.9 with clock_gettime from Recaulk (Review Focus 3). Inspected, never run: an x86_64 program runs
-  # on 10.9, which on-target covers. One short job; publish waits for it.
+  # on 10.9, which on-target covers. The cross standalone archive gets the same, unpacked under a path
+  # with a space by the port's standalone smoke. One short job; publish waits for it.
   modern-smoke:
     needs: [plan, build]
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -498,6 +511,13 @@ jobs:
         with:
           name: golang-go${{ needs.plan.outputs.line }}
           path: dist
+      # Before the pkg goes in, so nothing installed of go127-cross can stand in for the archive.
+      - name: The cross standalone archive, unpacked anywhere, links 10.9 programs
+        run: |
+          set -eu
+          port="$(MAVERICKS_BUILD_ROOT="$RUNNER_TEMP/mm-build" sh build/port.sh)"
+          status=0; sh "$port/tests/standalone-smoke.sh" "dist/go$GO_LINE-cross-$VER-macos-arm64.tar.gz" || status=$?
+          [ "$status" -eq 0 ] || { echo "::error::standalone-smoke.sh exited $status (77, a skip, is a failure here)"; exit 1; }
       - name: Install this run's cross pkg
         run: sudo installer -pkg "$(ls dist/golang-*-cross-mavericks.*.pkg)" -target /
       - name: go runs natively; 10.9 programs link through the cross toolchain

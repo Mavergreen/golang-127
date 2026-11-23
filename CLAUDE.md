@@ -40,13 +40,16 @@ which install `/usr/local/mavergreen/go127` and `/usr/local/mavergreen/go127-cro
     checks that need no Mac; the darwin ones are on-target's), `build-cross` and `build-linux-cross`, the compat
     guard (clang22's `llvm-*` as `LIPO`/`OTOOL`/`NM`), both updaters and both pkgs (a missing updater fails the
     step). The archive smoke installs `go127-cross-<version>-linux-x86_64.tar.gz` with shipyard's
-    `install-products.sh`, as install@v1 does, from a `file://` copy of the release, and runs `tests/cross-smoke.sh`. It also asserts that `release-assets.sh` selects the archive exactly once, so
-    publish's `SHA256SUMS` lists it once. Then sign, appcast and conformance.
+    `install-products.sh`, as install@v1 does, from a `file://` copy of the release, and runs `tests/cross-smoke.sh`. It also collects the two standalone Mac archives package.sh writes beside the pkgs
+    (`go127-<version>-macos-x86_64.tar.gz`, `go127-cross-<version>-macos-arm64.tar.gz`), and asserts that
+    `release-assets.sh` selects each of the three archives exactly once, so publish's `SHA256SUMS` lists each once. Then sign, appcast and conformance.
   - `on-target` (`ubuntu-latest`, `Mavergreen/mavericks-vm@v1`, PRs too): on a fresh 10.9 guest the native
-    pkg must first refuse without clang22, with shipyard's exact missing-require sentence. Then Longboat's sdk109, clang22 and the pkg go in,
-    and the port's `tests/on-target/run.sh` runs.
-  - `modern-smoke` (`macos-26`, PRs too; fork PRs skip it, as they skip on-target): installs clang22-cross by install@v1 `products:`, then the cross
-    pkg. `go` must run natively on arm64, and `tests/cross-smoke.sh` must pass.
+    pkg must first refuse without clang22 (and without sdk109), with shipyard's exact missing-require sentences. Then Longboat's sdk109,
+    clang22 and the pkg go in, the port's `tests/on-target/run.sh` runs, and the port's `tests/standalone-smoke.sh` runs against the
+    native standalone archive.
+  - `modern-smoke` (`macos-26`, PRs too; fork PRs skip it, as they skip on-target): installs clang22-cross by install@v1 `products:`, and runs the port's
+    `tests/standalone-smoke.sh` against the cross standalone archive, then installs the cross pkg. `go` must run natively on
+    arm64, and `tests/cross-smoke.sh` must pass.
   - `publish` needs `build`, `scan`, `on-target` and `modern-smoke`.
 - **This repo ships ONE Go minor line (1.27) from the repo root.** `UPSTREAM_VERSION` and `patches/`
   live at the top level, not under a per-line directory; everything else derives from the line number
