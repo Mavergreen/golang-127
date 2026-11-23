@@ -1,0 +1,1 @@
+The native installer now also checks that sdk109 is installed, which clang22 already requires.
