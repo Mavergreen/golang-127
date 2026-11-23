@@ -76,8 +76,8 @@ auto-repackage anything downstream — cut those repackages by hand when they ma
 
 The 10.9 SDK is Apple's, so neither pkg carries it. The cross tree's `SDKs` is a link to
 `../sdk109/SDKs`, which `sudo longboat sdk install 10.9` fills. Every darwin/amd64 binary is external-linked against it, so
-the cross pkg requires Longboat 20261019.1 or later (the first with `longboat sdk install`) and `sdk109`;
-consumers get both from install@v1 with `products: go127-cross@<tag>`. Should `sdk109` go missing later,
+both pkgs require `sdk109`, and neither requires Longboat: sdk109 is what the wrapper uses, however it was installed (maintainer
+ruling 2026-11-20, check at use). Consumers get sdk109 from install@v1 with `products: go127-cross@<tag>`. Should `sdk109` go missing later,
 `mavericks-cross-clang` stops at its first use and names that command. The build itself reaches the
 SDK at sdk109's installed prefix (golang-port's PORT.md, "Fixed C-toolchain paths").
 
