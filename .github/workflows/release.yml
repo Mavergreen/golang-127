@@ -231,28 +231,45 @@ jobs:
         run: |
           set -eu
           app="$(CMAKE="$(command -v cmake)" sh "$PORT_DIR/build/build-updater.sh" native)"
-          CMAKE="$(command -v cmake)" sh "$PORT_DIR/build/build-updater.sh" cross
+          xapp="$(CMAKE="$(command -v cmake)" sh "$PORT_DIR/build/build-updater.sh" cross)"
+          { echo "UPD_APP_NATIVE=$app"; echo "UPD_APP_CROSS=$xapp"; } >> "$GITHUB_ENV"
           exe="$app/Contents/MacOS/$(basename "$app" .app)"
           "$OTOOL" -L "$exe" > "$RUNNER_TEMP/updater-libs.txt"
           cat "$RUNNER_TEMP/updater-libs.txt"
           ! grep -qi 'usr/local/mavergreen/' "$RUNNER_TEMP/updater-libs.txt" || { echo "::error::updater links the toolchain it updates"; exit 1; }
 
+      # package.sh only warns and packages the toolchain alone when its updater is missing; a release
+      # without its updater never updates again, so a missing one stops the build here.
       - name: Package the native and cross .pkgs
         run: |
           set -eu
-          sh "$PORT_DIR/build/package.sh" native
-          sh "$PORT_DIR/build/package.sh" cross
+          for a in "${UPD_APP_NATIVE:-}" "${UPD_APP_CROSS:-}"; do
+            [ -n "$a" ] && [ -d "$a" ] || { echo "::error::no updater app at '$a' -- the updater step did not leave one"; exit 1; }
+          done
+          UPD_APP="$UPD_APP_NATIVE" sh "$PORT_DIR/build/package.sh" native
+          UPD_APP="$UPD_APP_CROSS" sh "$PORT_DIR/build/package.sh" cross
 
-      # Review Focus 4: a Linux runner gets this archive from install@v1 `products:`, extracted at the
-      # cross product's prefix, which its go.env names as CC. Prove that shape here, before anyone
-      # consumes it: a cgo and a pure-Go darwin/amd64 program, each 10.9-stamped with clock_gettime
-      # linked in from Recaulk.
-      - name: The Linux archive, extracted where install@v1 puts it, builds 10.9 programs
+      # Review Focus 4: a Linux runner gets this archive from install@v1 `products:`, which runs
+      # install-products.sh. So install it exactly that way, from a file:// copy of this release (the
+      # archive beside its SHA256SUMS, at the path a GitHub release serves it): the archive's own
+      # opt/mavergreen/go<line>-cross/mavergreen.plist marks it and names its requires, and it lands at
+      # the cross product's prefix, which its go.env names as CC. Then a cgo and a pure-Go darwin/amd64
+      # program must each come out 10.9-stamped with clock_gettime linked in from Recaulk.
+      - name: The Linux archive, installed the way install@v1 installs it, builds 10.9 programs
         run: |
           set -eu
           G="/usr/local/mavergreen/go$GO_LINE-cross"
           [ ! -e "$G" ] || { echo "::error::$G already exists, so this would not test the archive"; exit 1; }
-          sudo tar -xzf "$GO_OUT/go$GO_LINE-cross-$VER-linux-x86_64.tar.gz" -C /usr/local/mavergreen
+          asset="go$GO_LINE-cross-$VER-linux-x86_64.tar.gz"
+          rel="$RUNNER_TEMP/releases"
+          d="$rel/Mavergreen/$(sh "$SHIPYARD_SCRIPTS/product-name.sh" repo "go$GO_LINE-cross")/releases/download/$VER"
+          mkdir -p "$d"
+          cp "$GO_OUT/$asset" "$d/"
+          ( cd "$d" && sha256sum "$asset" > SHA256SUMS )
+          MAVERGREEN_RELEASES="file://$rel" MAVERGREEN_TAR_CACHE="$RUNNER_TEMP/tar-cache" \
+            sh "$SHIPYARD_SCRIPTS/install-products.sh" "go$GO_LINE-cross@$VER"
+          got="$(sed -n '/<key>version<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' "$G/mavergreen.plist" | sed -n 1p)"
+          [ "$got" = "$VER" ] || { echo "::error::$G/mavergreen.plist says '$got', this run built $VER"; exit 1; }
           sh tests/cross-smoke.sh "$G" /usr/local/mavergreen/clang22/bin
 
       - name: The build must not have written into the source tree
@@ -285,6 +302,7 @@ jobs:
 
       - name: EdDSA-sign both .pkgs + generate both Sparkle appcasts
         if: needs.plan.outputs.any_publish == 'true'
+        shell: bash   # -eo pipefail: a failing ls must not hand head an empty list
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           GH_TOKEN: ${{ github.token }}   # sign_and_appcast.sh fetches ed25519-sign via `gh` -> needs auth (else 403 rate-limit)
@@ -350,6 +368,7 @@ jobs:
       # about a release, not about a build.
       - name: Artifact conformance
         if: needs.plan.outputs.any_publish == 'true'
+        shell: bash   # -eo pipefail: artifact-facts.sh dying must fail the step, not shorten the stream
         run: |
           sh "$SHIPYARD_SCRIPTS/artifact-facts.sh" dist "${{ needs.plan.outputs.version }}" \
             | sh "$SHIPYARD_SCRIPTS/check-artifact-conformance.sh"
@@ -425,17 +444,22 @@ jobs:
             sw_vers
             sudo -n true || { echo "the guest's user cannot sudo without a password, and installer needs root"; exit 1; }
             npkg="$(ls guest/golang-*-native-mavericks.*.pkg)"
-            # Review Focus 1: no clang22 yet, so the pkg's preinstall must refuse and name it. Its message
-            # goes to /var/log/install.log, so read the lines this attempt added as well as installer's own.
+            # Review Focus 1: no clang22 yet, so the pkg's preinstall must refuse with the sentence shipyard's
+            # stage_product.sh writes for a missing require ("<pkg name> needs <short> installed first: <url>
+            # -- install it, then run this installer again."; the pkg name is golang-port's package.sh's).
+            # The preinstall's stderr goes to /var/log/install.log, so read the lines this attempt added
+            # as well as installer's own.
+            gominor="$(printf '%s' "$VER" | cut -d. -f1,2)"
+            want="Go $gominor for Mavericks needs clang22 installed first: https://github.com/Mavergreen/clang-22/releases/latest -- install it, then run this installer again."
             mark="$(sudo sh -c 'if [ -f /var/log/install.log ]; then wc -l < /var/log/install.log; else echo 0; fi' | tr -d ' ')"
             if out="$(sudo installer -pkg "$npkg" -target / 2>&1)"; then
               printf '%s\n' "$out"; echo "FAIL: the native pkg installed on a guest without clang22"; exit 1
             fi
             log="$(sudo tail -n "+$((mark + 1))" /var/log/install.log 2>/dev/null || true)"
-            printf '%s\n%s\n' "$out" "$log" | grep -i 'clang22' \
-              || { printf '%s\n' "$out" "$log" | tail -40; echo "FAIL: the refusal does not name clang22"; exit 1; }
+            printf '%s\n%s\n' "$out" "$log" | grep -F "$want" \
+              || { printf '%s\n' "$out" "$log" | tail -40; echo "FAIL: the refusal is not: $want"; exit 1; }
             [ ! -e "/usr/local/mavergreen/go$GO_LINE/bin/go" ] || { echo "FAIL: the refused install left go$GO_LINE behind"; exit 1; }
-            echo "ok   the native pkg refuses without clang22, naming it"
+            echo "ok   the native pkg refuses without clang22: $want"
             sudo installer -pkg guest/longboat/longboat-*.pkg -target /
             sudo /usr/local/mavergreen/longboat/bin/longboat sdk install 10.9
             sudo installer -pkg guest/clang22/mavericks-clang-22-native-*.pkg -target /
@@ -451,6 +475,7 @@ jobs:
   # on 10.9, which on-target covers. One short job; publish waits for it.
   modern-smoke:
     needs: [plan, build]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: macos-26
     permissions:
       contents: read
