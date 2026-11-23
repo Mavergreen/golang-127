@@ -9,8 +9,8 @@ Before changing or dropping any carried change during a port to a new Go minor: 
 
 ## Trust invariants (crypto/x509 on darwin)
 
-These hold on every line. Tests named `TestKeychainUnion*` pin them; `tests/trust/unit-trust.sh`
-requires those tests to run and pass. These change only through a trust-policy brainstorm, never
+These hold on every line. Tests named `TestKeychainUnion*` pin them; golang-port's
+`tests/on-target/run.sh` (on 10.9) and `tests/trust-static.sh` (in the Linux build job) require those tests to run and pass. These change only through a trust-policy brainstorm, never
 inside a port.
 
 1. **The system roots are the keychain union:** anchors from all three trust domains (user, admin,
@@ -145,7 +145,7 @@ and `TestLoadSystemCertsLoadColonSeparatedDirs` (env-exclusive roots, which we d
 invariant 3), and `TestIssue51759` (verify_test.go) and `TestHybridPool` (hybrid_pool_test.go), which
 assume Apple's verifier is the default (Apple's error strings; AIA-fetched intermediates —
 invariants 1, 5). `TestSSLCertEnvOverride` keeps running and asserts invariant 4 on darwin.
-`tests/trust/unit-trust.sh` requires all four skips. *Reconsider:* when upstream's tests stop
+golang-port's `tests/on-target/run.sh` requires all four skips, each with its reason. *Reconsider:* when upstream's tests stop
 asserting upstream's darwin semantics.
 
 ### 0019-cmd-link-macos-default-10.9.patch
