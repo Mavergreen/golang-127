@@ -179,7 +179,7 @@ jobs:
 
       # The shared runner takes the whole top-level suite, so a newly added test runs the day it lands
       # instead of when someone remembers a CI line. Tests needing a built toolchain or a real 10.9 box
-      # exit 77 and report SKIP here; on-target runs the trust tests on the installed toolchain.
+      # exit 77 and report SKIP here; the port's trust-static.sh (below) and on-target run the trust tests.
       - name: Run the repo's tests
         run: sh "$SHIPYARD_SCRIPTS/run-repo-tests.sh"
 
@@ -207,6 +207,14 @@ jobs:
 
       - name: Build the native toolchain
         run: sh "$PORT_DIR/build/build-native.sh"
+
+      # The trust checks that need no Mac, on the builder make.bash left: the 10.9 and keychain-union fixes in the
+      # source, crypto/x509 for every non-darwin GOOS, and the build-tag-free keychain-union tests. What needs darwin
+      # is on-target's. Its skip (77) would mean nothing was checked.
+      - name: Trust checks that need no Mac
+        run: |
+          status=0; sh "$PORT_DIR/tests/trust-static.sh" || status=$?
+          [ "$status" -eq 0 ] || { echo "::error::trust-static.sh exited $status (77, a skip, is a failure here)"; exit 1; }
 
       - name: Build the cross toolchain (darwin/arm64)
         run: sh "$PORT_DIR/build/build-cross.sh"
