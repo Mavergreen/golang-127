@@ -1,0 +1,1 @@
+Install clang22 first: an update from 1.27.4-mavericks.12 stops at install until clang22 is installed, because Go now compiles and links with clang22 instead of Apple's tools.
