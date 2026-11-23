@@ -469,7 +469,7 @@ jobs:
             printf '%s\n%s\n' "$out" "$log" | grep -F "$want_sdk" \
               || { printf '%s\n' "$out" "$log" | tail -40; echo "FAIL: the refusal does not also say: $want_sdk"; exit 1; }
             [ ! -e "/usr/local/mavergreen/go$GO_LINE/bin/go" ] || { echo "FAIL: the refused install left go$GO_LINE behind"; exit 1; }
-            echo "ok   the native pkg refuses without clang22: $want"
+            echo "ok   the native pkg refuses without clang22 and sdk109: $want / $want_sdk"
             sudo installer -pkg guest/longboat/longboat-*.pkg -target /
             sudo /usr/local/mavergreen/longboat/bin/longboat sdk install 10.9
             sudo installer -pkg guest/clang22/mavericks-clang-22-native-*.pkg -target /
