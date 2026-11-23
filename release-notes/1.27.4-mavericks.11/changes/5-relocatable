@@ -1,0 +1,1 @@
+A Go toolchain copied or moved to another directory still compiles and links, because it now finds its C compiler wrapper relative to itself.
