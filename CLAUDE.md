@@ -19,7 +19,8 @@ which install `/usr/local/mavergreen/go127` and `/usr/local/mavergreen/go127-cro
 - **The build chain is golang-port's** (`Mavergreen/golang-port`, pinned in
   `components/golang-port/version`). This repo holds only the line's inputs: `UPSTREAM_VERSION`,
   `components/{recaulk,clang22,golang-port}/version`, `line.env` (`CROSS_MIN_OS`, `CA_SHA256`), the hook
-  `patches/`, `vendor/cacert.pem`, `updater/` and the release notes. `build/port.sh` resolves the port:
+  `patches/`, `vendor/cacert.pem` and the release notes (the updater's icon and public key, and the pkgs'
+  Welcome text, are golang-port's). `build/port.sh` resolves the port:
   `GOLANG_PORT_DIR` on a dev box (announced `UNPINNED`; refused when `MAVERGREEN_RELEASE=yes`), else the
   pinned release tarball verified against its `SHA256SUMS`. Every step is
   `LINE_ROOT=$PWD sh "$PORT_DIR/build/<step>.sh"`; the port's `PORT.md` "Build chain" is the authority for

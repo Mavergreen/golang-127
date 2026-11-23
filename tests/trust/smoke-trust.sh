@@ -12,7 +12,7 @@
 # SecurityAgent -- see mavericks-tailscale ws1-keychain-enum-spike).
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
-. "$here/../../build/versions.sh"
+PREFIX="/usr/local/mavergreen/go$(sh "$here/../../build/version.sh" line)"
 : "${MAVERICKS_HOST:?set MAVERICKS_HOST}"
 
 ssh "$MAVERICKS_HOST" "rm -rf /tmp/trust && mkdir -p /tmp/trust"

@@ -46,6 +46,11 @@ echo "0000  something-else.tar.gz" > "$rel/SHA256SUMS"
 rc=0; run >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "a tarball missing from SHA256SUMS gave exit $rc, want 1"
 printf '%s\n' "$good" > "$rel/SHA256SUMS"
+mv "$rel/golang-port-$pin.tar.gz" "$T/held.tar.gz"
+rc=0; run >/dev/null 2>"$T/err" || rc=$?
+[ "$rc" = 1 ] || fail "a release whose tarball cannot be fetched gave exit $rc, want 1"
+grep -q "could not fetch golang-port-$pin.tar.gz" "$T/err" || { cat "$T/err"; fail "a failed fetch must stop port.sh at the fetch, naming the asset -- not later at extraction"; }
+mv "$T/held.tar.gz" "$rel/golang-port-$pin.tar.gz"
 
 mkdir -p "$T/dev/build"; : > "$T/dev/build/env.sh"
 out="$(GOLANG_PORT_DIR="$T/dev" run 2>"$T/err")" || { cat "$T/err"; fail "GOLANG_PORT_DIR was refused outside a release"; }

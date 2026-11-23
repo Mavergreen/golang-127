@@ -51,8 +51,9 @@ So the cost of being untracked is not a broken build — it's that **nobody is t
 publishes new roots. Refresh deliberately:
 
 ```sh
-# set CA_SHA256 in line.env to the new bundle's sha256 first; this downloads, verifies and rewrites vendor/cacert.pem
 MAVERICKS_CA_REFRESH=1 LINE_ROOT="$PWD" sh "$(sh build/port.sh)/build/fetch-ca.sh"
+# it downloads and stops: "FATAL: CA bundle sha256 mismatch: got <new> want <old>"
+# put <new> into CA_SHA256 in line.env, then run the same command again: it verifies and rewrites vendor/cacert.pem
 # commit both files
 ```
 
